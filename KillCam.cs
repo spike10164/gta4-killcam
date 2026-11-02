@@ -97,7 +97,6 @@ namespace KillCam {
       private bool bustedHandled = false;
       private int deathHoldMs = 30000;
       private float deathTimeScale = 0.05f;
-      private bool holdFade = true;
       private bool forceAim = false;
       private int activeDurationMs = 7000;
 
@@ -255,8 +254,6 @@ namespace KillCam {
             "HoldMs=30000",
             "// Game speed while holding (0.01 - 1.0). Very low speed stretches the game's own respawn timers",
             "HoldTimeScale=0.05",
-            "// Keep forcing the screen to stay faded in while holding, so the fade to black does not hide the cam",
-            "KeepScreenVisible=true",
             "",
             "[Light]",
             "// Soft light on the player's face during the face close-up",
@@ -319,7 +316,6 @@ namespace KillCam {
          if (bustedCuts < 1) bustedCuts = 1;
          deathHoldMs = Settings.GetValueInteger("HoldMs", "Death", 30000);
          deathTimeScale = Settings.GetValueFloat("HoldTimeScale", "Death", 0.05f);
-         holdFade = Settings.GetValueBool("KeepScreenVisible", "Death", true);
          forceAim = Settings.GetValueBool("ForceAim", "Player", false);
          if (deathTimeScale < 0.01f) deathTimeScale = 0.01f;
          if (deathTimeScale > 1.0f) deathTimeScale = 1.0f;
@@ -512,26 +508,6 @@ namespace KillCam {
       }
 
       // Fades the screen back in if the game's wasted/busted fade-out starts
-      private int lastFadeLogTick = 0;
-
-      // Only acts when the game is actually fading out / faded out, and logs what it sees (when Debug=true)
-      private void KeepVisible() {
-         try {
-            bool fadingOut = GTA.Native.Function.Call<bool>("IS_SCREEN_FADING_OUT");
-            bool fadedOut = GTA.Native.Function.Call<bool>("IS_SCREEN_FADED_OUT");
-            int now = Environment.TickCount;
-            if (debug && now - lastFadeLogTick > 500) {
-               lastFadeLogTick = now;
-               Debug("fadingOut=" + fadingOut.ToString() + " fadedOut=" + fadedOut.ToString());
-            }
-            if (fadingOut || fadedOut) {
-               GTA.Native.Function.Call("DO_SCREEN_FADE_IN", 0);
-            }
-         } catch (Exception ex) {
-            Debug("KeepVisible error: " + ex.Message);
-         }
-      }
-
       private void BeginCamera(Ped focus, Ped actingPed, bool death) {
          BeginCamera(focus, actingPed, death, false);
       }
@@ -966,7 +942,6 @@ namespace KillCam {
             if (victim == null || !victim.Exists()) over = true;
             else if (!bustedMode && !victim.isDead) over = true;
             else if (bustedMode && victim.Position.DistanceTo(deathStartPos) > 25.0f) over = true;
-            if (!over && holdFade) KeepVisible();
          } else if (player == null || !player.Exists() || player.isDead) {
             over = true;
          }

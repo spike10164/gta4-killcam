@@ -28,8 +28,7 @@ Not compiled or tested in-game.
 - Delete the old `KillCam.ini` to get the commented defaults.
 
 ## Death / busted hold
-- On death or a busted arrest the cam plays on the player and is held up to `HoldMs` (30 s) or until Jump is pressed, then the game respawns you. The game is slowed to `HoldTimeScale` and the screen is kept faded in. Whether the game's own respawn can be delayed this way is untested; tune `HoldTimeScale` / `KeepScreenVisible`.
-- `BustedCam=true` enables it for arrests.
+- On death or a busted arrest the cam plays on the player and is held up to `HoldMs` (30 s) or until Jump is pressed. The game is slowed to `HoldTimeScale` to stretch the game's own respawn timer. The script does not touch the screen fade; the cam ends when you respawn. Tune `HoldTimeScale`.
 - `ForceAim` is now off by default (it locks movement/shooting and can jitter the camera).
 
 ## Busted
