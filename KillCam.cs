@@ -80,6 +80,7 @@ namespace KillCam {
       private Ped actor = null;
       private Vector3 lastActorPos;
       private float faceScale = 1.0f;
+      private Light faceLightObj = null;
 
       private List<TrackedPed> tracked = new List<TrackedPed>();
       private CamState state = CamState.Idle;
@@ -489,7 +490,11 @@ namespace KillCam {
                if (faceLight) {
                   // a soft light between the camera and the face, a little above it
                   Vector3 lp = new Vector3(hd.X + (pos.X - hd.X) * 0.6f, hd.Y + (pos.Y - hd.Y) * 0.6f, hd.Z + 0.35f);
-                  World.DrawLight(lp, System.Drawing.Color.FromArgb(255, 235, 200), lightRange, lightIntensity);
+                  if (faceLightObj == null) {
+                     faceLightObj = new Light(System.Drawing.Color.FromArgb(255, 235, 200), lightRange, lightIntensity);
+                  }
+                  faceLightObj.Position = lp;
+                  faceLightObj.Enabled = true;
                }
                break;
             }
@@ -510,6 +515,7 @@ namespace KillCam {
                target = victimHead;
                break;
          }
+         if (shot != Shot.ActorFace && faceLightObj != null && faceLightObj.Enabled) faceLightObj.Enabled = false;
          cam.Position = pos;
          cam.LookAt(target);
       }
@@ -557,6 +563,9 @@ namespace KillCam {
       }
 
       private void StopCamera() {
+         if (faceLightObj != null) {
+            try { faceLightObj.Enabled = false; } catch (Exception) { }
+         }
          Game.TimeScale = 1.0f;
          StopEffect();
          if (state == CamState.Playing && invincible && !deathMode) {
