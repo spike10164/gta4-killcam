@@ -31,3 +31,9 @@ Not compiled or tested in-game.
 - On death or a busted arrest the cam plays on the player and is held up to `HoldMs` (30 s) or until Jump is pressed, then the game respawns you. The game is slowed to `HoldTimeScale` and the screen is kept faded in. Whether the game's own respawn can be delayed this way is untested; tune `HoldTimeScale` / `KeepScreenVisible`.
 - `BustedCam=true` enables it for arrests.
 - `ForceAim` is now off by default (it locks movement/shooting and can jitter the camera).
+
+## Last stand (replaces the slow-motion respawn hold)
+When a hit leaves the player at or below `LastStandHealth` (default 15), the player is made invincible and ragdolled, so the death cam plays with no dependence on the game's respawn timing. After `HoldMs` or Jump, the player really dies (normal wasted screen). Hits that kill outright still use the old behaviour.
+
+## More shots
+Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face and wide). They also appear mid-sequence in normal kill cams. Victim/scene: ground close-up, handheld close, flyby, two-shot.
