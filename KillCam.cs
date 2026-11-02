@@ -269,7 +269,7 @@ namespace KillCam {
 
       // Space on keyboard and A on a controller are both bound to Sprint in GTA IV
       private bool SkipPressed() {
-         return isKeyPressed(Keys.Space) || Game.isGameKeyPressed(GameKey.Sprint);
+         return isKeyPressed(System.Windows.Forms.Keys.Space) || Game.isGameKeyPressed(GameKey.Sprint);
       }
 
       private void AimAtVictim(Ped player) {
@@ -282,7 +282,7 @@ namespace KillCam {
       // Heuristic wall check: if the first surface below a point high above it is much higher
       // than the subject, something solid (wall, roof, car) is in the way.
       private bool IsBlocked(Vector3 p, float subjectZ) {
-         float ground = World.GetGroundZBelow(p.X, p.Y, subjectZ + 6.0f);
+         float ground = World.GetGroundZ(new Vector3(p.X, p.Y, subjectZ + 6.0f), GroundType.NextBelowCurrent);
          return ground > subjectZ + camClearance;
       }
 
