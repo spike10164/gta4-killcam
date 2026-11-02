@@ -92,6 +92,10 @@ namespace KillCam {
       private int deathChancePercent = 100;
       private bool deathMode = false;
       private bool bustedMode = false;
+      private bool madeInvincible = false;
+      private bool timeScaleSet = false;
+      private int lastErrorTick = -100000;
+      private int lastPedScanTick = 0;
       private bool situationShots = true;
       private bool weaponPacing = true;
       private int weaponClass = 0; // 0 none, 1 melee, 2 handgun, 3 smg/rifle, 4 shotgun, 5 sniper, 6 explosive
@@ -387,7 +391,10 @@ namespace KillCam {
                ScanForKills();
             }
          } catch (Exception ex) {
-            Game.Console.Print("KillCam error: " + ex.Message);
+            if (Environment.TickCount - lastErrorTick > 5000) {
+               lastErrorTick = Environment.TickCount;
+               Game.Console.Print("KillCam error: " + ex.Message);
+            }
             StopCamera();
          }
       }
@@ -467,6 +474,9 @@ namespace KillCam {
             TryStartCamera(player, killed);
          }
 
+         // the nearby-ped query allocates and the dedupe is O(n^2), so it runs at most twice a second
+         if (now - lastPedScanTick < 500) return;
+         lastPedScanTick = now;
          Ped[] nearby = World.GetPeds(player.Position, scanRadius);
          for (int i = 0; i < nearby.Length; i++) {
             Ped p = nearby[i];
@@ -578,10 +588,12 @@ namespace KillCam {
          cam.Activate();
 
          Game.TimeScale = slowNow;
+         timeScaleSet = true;
          if (!death) {
             Ped player = actor;
             if (invincible) {
                player.Invincible = true;
+               madeInvincible = true;
             }
             if (lockPlayer) {
                Player.CanControlCharacter = false;
@@ -664,20 +676,37 @@ namespace KillCam {
          return ground > subjectZ + camClearance;
       }
 
-      // Tries the wanted spot, then closer and higher ones, and returns the first clear one.
+      private float clearScale = 1.0f;
+      private float clearTarget = 1.0f;
+      private int clearEvalTick = 0;
+      private bool clearInit = false;
+
+      // Finds how far the wanted spot must be pulled in (1.0 = as wanted) to get clear of walls.
+      // Re-checked at most every 250 ms and eased toward, so the camera does not pop and the
+      // ground checks are not run every frame.
       private Vector3 ClearPosition(Vector3 center, float ang, float radius, float height) {
          if (interior) {
             float h = S(height);
             if (h > 1.4f) h = 1.4f;
             return Offset(center, ang, S(radius), h);
          }
-         float[] scales = new float[] { 1.0f, 0.75f, 0.55f };
-         for (int i = 0; i < scales.Length; i++) {
-            Vector3 p = Offset(center, ang, radius * radiusMul * scales[i], height + (1.0f - scales[i]) * 2.5f);
-            if (!IsBlocked(p, center.Z)) return p;
+         int now = Environment.TickCount;
+         if (!clearInit || now - clearEvalTick >= 250) {
+            float[] scales = new float[] { 1.0f, 0.75f, 0.55f };
+            float target = 0.4f;
+            for (int i = 0; i < scales.Length; i++) {
+               Vector3 p = Offset(center, ang, radius * radiusMul * scales[i], height + (1.0f - scales[i]) * 2.5f);
+               if (!IsBlocked(p, center.Z)) { target = scales[i]; break; }
+            }
+            clearTarget = target;
+            clearEvalTick = now;
+            if (!clearInit) { clearScale = target; clearInit = true; }
          }
-         // nothing clear: look straight down from above
-         return new Vector3(center.X, center.Y, center.Z + height + 3.0f);
+         float diff = clearTarget - clearScale;
+         if (diff > 0.02f) diff = 0.02f;
+         if (diff < -0.02f) diff = -0.02f;
+         clearScale += diff;
+         return Offset(center, ang, radius * radiusMul * clearScale, height + (1.0f - clearScale) * 2.5f);
       }
 
       private void StartEffect() {
@@ -717,6 +746,7 @@ namespace KillCam {
          shotStartTick = Environment.TickCount;
          shotDir = (rng.Next(2) == 0) ? 1.0f : -1.0f;
          hasFixedPos = false;
+         clearInit = false;
          cam.FOV = 42.0f;
          cam.Roll = 0.0f;
 
@@ -1147,9 +1177,13 @@ namespace KillCam {
          if (faceLightObj != null) {
             try { faceLightObj.Enabled = false; } catch (Exception) { }
          }
-         Game.TimeScale = 1.0f;
+         if (timeScaleSet) {
+            Game.TimeScale = 1.0f;
+            timeScaleSet = false;
+         }
          StopEffect();
-         if (state == CamState.Playing && invincible && !deathMode) {
+         if (madeInvincible) {
+            madeInvincible = false;
             Ped player = Player.Character;
             if (player != null && player.Exists()) player.Invincible = false;
          }
