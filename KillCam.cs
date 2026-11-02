@@ -346,7 +346,12 @@ namespace KillCam {
       }
 
       private void Debug(string text) {
-         if (debug) Game.Console.Print("KillCam: " + text);
+         if (!debug) return;
+         Game.Console.Print("KillCam: " + text);
+         try {
+            File.AppendAllText(Path.ChangeExtension(Settings.Filename, ".log"),
+               DateTime.Now.ToString("HH:mm:ss.fff") + "  " + text + "\r\n");
+         } catch (Exception) { }
       }
 
       private void KillCam_Tick(object sender, EventArgs e) {
@@ -493,12 +498,24 @@ namespace KillCam {
       }
 
       // Fades the screen back in if the game's wasted/busted fade-out starts
+      private int lastFadeLogTick = 0;
+
+      // Only acts when the game is actually fading out / faded out, and logs what it sees (when Debug=true)
       private void KeepVisible() {
          try {
-            // forced every tick: the game keeps trying to fade to black after a death or arrest
-            GTA.Native.Function.Call("DO_SCREEN_FADE_IN_UNHACKED", 0);
-            GTA.Native.Function.Call("DO_SCREEN_FADE_IN", 0);
-         } catch (Exception) { }
+            bool fadingOut = GTA.Native.Function.Call<bool>("IS_SCREEN_FADING_OUT");
+            bool fadedOut = GTA.Native.Function.Call<bool>("IS_SCREEN_FADED_OUT");
+            int now = Environment.TickCount;
+            if (debug && now - lastFadeLogTick > 500) {
+               lastFadeLogTick = now;
+               Debug("fadingOut=" + fadingOut.ToString() + " fadedOut=" + fadedOut.ToString());
+            }
+            if (fadingOut || fadedOut) {
+               GTA.Native.Function.Call("DO_SCREEN_FADE_IN", 0);
+            }
+         } catch (Exception ex) {
+            Debug("KeepVisible error: " + ex.Message);
+         }
       }
 
       private void BeginCamera(Ped focus, Ped actingPed, bool death) {
