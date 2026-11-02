@@ -10,7 +10,7 @@ Install: install ScriptHookDotNet, copy `KillCam.cs` to `<GTA IV>/scripts/`. `Ki
 - A **timecycle** effect plays for `EffectMs`. `Timecycles` is a comma-separated list of modifier names (one picked at random); an unknown name may do nothing, so try others from the game's timecycle modifier files.
 
 - **Skip** with Space or controller A (both are Sprint in GTA IV). Hold-release first: a key held when the cam starts doesn't skip.
-- The player is locked in place and aims at the victim during the cam (`LockPlayerControl`).
+- The player aims at the victim during the cam. By default input is NOT locked: the aim task is re-issued every 300 ms, so moving may briefly fight it. `LockPlayerControl=true` freezes input instead.
 - Bleed-outs are ignored: only a sudden health drop (`HitDropThreshold`) within `KillWindowMs` of death counts as a kill.
 - Victim shots are kept higher and moved off walls using a ground-height heuristic (`WallClearance`).
 - Final shot on the player is either a face close-up from his right side or a wide shot with both him and the victim.

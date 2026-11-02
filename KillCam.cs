@@ -60,7 +60,8 @@ namespace KillCam {
       // a death only counts as a kill if the last hit was this recent
       private int killWindowMs = 1500;
       private float camClearance = 1.3f;
-      private bool lockPlayer = true;
+      private bool lockPlayer = false;
+      private int lastAimTick = 0;
       private bool skipArmed = false;
       private bool controlLocked = false;
 
@@ -122,7 +123,7 @@ namespace KillCam {
                Settings.SetValue("OrbitHeight", "Camera", 0.5f);
                Settings.SetValue("OrbitSpeedDegPerSec", "Camera", 12.0f);
                Settings.SetValue("Invincible", "Player", true);
-               Settings.SetValue("LockPlayerControl", "Player", true);
+               Settings.SetValue("LockPlayerControl", "Player", false);
                Settings.SetValue("DeathCam", "Death", true);
                Settings.SetValue("DeathCamChancePercent", "Death", 100);
                Settings.SetValue("Enabled", "Light", true);
@@ -152,7 +153,7 @@ namespace KillCam {
          orbitHeight = Settings.GetValueFloat("OrbitHeight", "Camera", 0.5f);
          orbitSpeedDeg = Settings.GetValueFloat("OrbitSpeedDegPerSec", "Camera", 12.0f);
          invincible = Settings.GetValueBool("Invincible", "Player", true);
-         lockPlayer = Settings.GetValueBool("LockPlayerControl", "Player", true);
+         lockPlayer = Settings.GetValueBool("LockPlayerControl", "Player", false);
          deathCam = Settings.GetValueBool("DeathCam", "Death", true);
          deathChancePercent = Settings.GetValueInteger("DeathCamChancePercent", "Death", 100);
          faceLight = Settings.GetValueBool("Enabled", "Light", true);
@@ -321,7 +322,7 @@ namespace KillCam {
                Player.CanControlCharacter = false;
                controlLocked = true;
             }
-            AimAtVictim(player);
+            AimAtVictim(player, true);
          }
          // the skip key must be released once before it counts, so a held sprint does not skip at once
          skipArmed = !SkipPressed();
@@ -347,10 +348,13 @@ namespace KillCam {
          return isKeyPressed(System.Windows.Forms.Keys.Space) || Game.isGameKeyPressed(GameKey.Sprint);
       }
 
-      private void AimAtVictim(Ped player) {
+      // Forces the aim without locking input. Without the lock, player input can cancel the task,
+      // so UpdateCamera re-issues it every few hundred ms (clear = false avoids resetting the pose).
+      private void AimAtVictim(Ped player, bool clear) {
          try {
-            player.Task.ClearAll();
+            if (clear) player.Task.ClearAll();
             player.Task.AimAt(new Vector3(lastVictimPos.X, lastVictimPos.Y, lastVictimPos.Z + 0.3f), durationMs);
+            lastAimTick = Environment.TickCount;
          } catch (Exception) { }
       }
 
@@ -538,8 +542,10 @@ namespace KillCam {
 
          if (now - shotStartTick >= shotLengthMs) {
             ChooseShot(false);
-            if (!deathMode) AimAtVictim(player);
+            if (!deathMode) AimAtVictim(player, false);
          }
+
+         if (!deathMode && !lockPlayer && now - lastAimTick >= 300) AimAtVictim(player, false);
 
          // orbit speed uses real time, so slow motion does not stall the camera
          float dt = (now - lastFrameTick) / 1000.0f;
