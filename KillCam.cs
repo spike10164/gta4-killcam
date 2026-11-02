@@ -58,8 +58,8 @@ namespace KillCam {
       private Vector3 fixedPos;
       private bool hasFixedPos = false;
       private bool finalShotChosen = false;
-      private bool wasInvincible = false;
       private bool effectOn = false;
+      private Random rng = new Random();
 
       public KillCam() {
          LoadSettings();
@@ -192,7 +192,7 @@ namespace KillCam {
       private void TryStartCamera(Ped player, Ped killed) {
          if (Environment.TickCount - lastEndTick < cooldownMs) return;
          if (lastEnemyOnly && IsOtherEnemyAlive(player, killed)) return;
-         if (Game.Random.Next(100) >= chancePercent) return;
+         if (rng.Next(100) >= chancePercent) return;
 
          victim = killed;
          lastVictimPos = victim.Position;
@@ -208,7 +208,6 @@ namespace KillCam {
 
          Game.TimeScale = slowScale;
          if (invincible) {
-            wasInvincible = player.Invincible;
             player.Invincible = true;
          }
          StartEffect();
@@ -220,7 +219,7 @@ namespace KillCam {
 
       private void StartEffect() {
          if (timecycles.Length == 0) return;
-         string name = timecycles[Game.Random.Next(timecycles.Length)];
+         string name = timecycles[rng.Next(timecycles.Length)];
          if (name.Length == 0) return;
          GTA.Native.Function.Call("SET_TIMECYCLE_MODIFIER", name);
          effectOn = true;
@@ -239,8 +238,8 @@ namespace KillCam {
          bool isFinal = (Environment.TickCount - startTick) + shotLengthMs >= durationMs;
          if (isFinal && !finalShotChosen) {
             finalShotChosen = true;
-            if (Game.Random.Next(100) < endOnPlayerPercent) {
-               next = (Game.Random.Next(2) == 0) ? Shot.PlayerOrbit : Shot.PlayerFront;
+            if (rng.Next(100) < endOnPlayerPercent) {
+               next = (rng.Next(2) == 0) ? Shot.PlayerOrbit : Shot.PlayerFront;
             } else {
                next = RandomVictimShot(shot);
             }
@@ -250,7 +249,7 @@ namespace KillCam {
 
          shot = next;
          shotStartTick = Environment.TickCount;
-         shotDir = (Game.Random.Next(2) == 0) ? 1.0f : -1.0f;
+         shotDir = (rng.Next(2) == 0) ? 1.0f : -1.0f;
          hasFixedPos = false;
 
          Vector3 pp = Player.Character.Position;
@@ -259,13 +258,13 @@ namespace KillCam {
          Vector3 from = IsPlayerShot() ? lastVictimPos : pp;
          angle = (float)Math.Atan2(from.Y - target.Y, from.X - target.X);
          // random starting angle for variety
-         angle += (float)(Game.Random.NextDouble() * Math.PI - Math.PI / 2.0);
+         angle += (float)(rng.NextDouble() * Math.PI - Math.PI / 2.0);
          Debug("shot " + shot.ToString());
       }
 
       private Shot RandomVictimShot(Shot previous) {
          Shot[] options = new Shot[] { Shot.OrbitVictim, Shot.LowFront, Shot.HighCrane, Shot.OverShoulder };
-         Shot pick = options[Game.Random.Next(options.Length)];
+         Shot pick = options[rng.Next(options.Length)];
          if (pick == previous) pick = options[(Array.IndexOf(options, pick) + 1) % options.Length];
          return pick;
       }
@@ -357,7 +356,7 @@ namespace KillCam {
          StopEffect();
          if (state == CamState.Playing && invincible) {
             Ped player = Player.Character;
-            if (player != null && player.Exists()) player.Invincible = wasInvincible;
+            if (player != null && player.Exists()) player.Invincible = false;
          }
          if (cam != null) {
             try {
