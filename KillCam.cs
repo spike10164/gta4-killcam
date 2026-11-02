@@ -29,7 +29,6 @@ namespace KillCam {
          LowRise,
          DutchOrbit,
          ZoomPull,
-         FullOrbit,
          Telephoto,
          BulletFollow,
          PullBack,
@@ -100,8 +99,6 @@ namespace KillCam {
       private int lastStreakTick = -100000;
       private int streakWindowMs = 15000;
       private bool lastEnemyKill = false;
-      private int specialChance = 7;
-      private bool special = false;
       private int finalHoldMs = 1200;
       private bool finalShotStarted = false;
       private bool matchKill = true;
@@ -278,8 +275,6 @@ namespace KillCam {
             "// or a kill while at low health. Each tier adds length, slower motion and more shake",
             "IntensityTiers=true",
             "StreakWindowMs=15000",
-            "// Chance (0-100) of a rare, longer cam that makes one slow full orbit around the victim",
-            "SpecialCamChancePercent=7",
             "// Extra time (ms) the final shot is held so the moment lands. Kill cams only",
             "FinalHoldMs=1200",
             "// Kills from behind start on the victim's face side so you see the reaction",
@@ -410,7 +405,6 @@ namespace KillCam {
          effectMs = Settings.GetValueInteger("EffectMs", "Effect", 7000);
          tiersOn = Settings.GetValueBool("IntensityTiers", "Camera", true);
          streakWindowMs = Settings.GetValueInteger("StreakWindowMs", "Camera", 15000);
-         specialChance = Settings.GetValueInteger("SpecialCamChancePercent", "Camera", 7);
          finalHoldMs = Settings.GetValueInteger("FinalHoldMs", "Camera", 1200);
          matchKill = Settings.GetValueBool("MatchKillDirection", "Camera", true);
          shakeOn = Settings.GetValueBool("CameraShake", "Effect", true);
@@ -623,7 +617,6 @@ namespace KillCam {
 
       private void BeginCamera(Ped focus, Ped actingPed, bool death, bool busted) {
          bustedMode = busted;
-         special = false;
          tier = 0;
          shakeMul = 1.0f;
          finalShotStarted = false;
@@ -672,13 +665,7 @@ namespace KillCam {
                   shakeMul = 1.0f + 0.4f * tier;
                }
             }
-            special = specialChance > 0 && rng.Next(100) < specialChance;
-            if (special) {
-               activeDurationMs = (int)(activeDurationMs * 1.7f);
-               activeShotMs = activeDurationMs;
-               effectActiveMs = activeDurationMs;
-            }
-            Debug("tier " + tier.ToString() + ", streak " + streakCount.ToString() + (special ? ", SPECIAL" : ""));
+            Debug("tier " + tier.ToString() + ", streak " + streakCount.ToString());
          }
          if (busted) activeShotMs = Math.Max(shotLengthMs, deathHoldMs / bustedCuts);
          cam = new Camera();
@@ -879,7 +866,7 @@ namespace KillCam {
          bool isFinal = (Environment.TickCount - startTick) + activeShotMs >= activeDurationMs;
          if (isFinal && !finalShotChosen) {
             finalShotChosen = true;
-            if (!deathMode && !bustedMode && !special && finalHoldMs > 0) {
+            if (!deathMode && !bustedMode && finalHoldMs > 0) {
                // hold the last shot a little longer so the moment lands
                activeDurationMs += finalHoldMs;
                activeShotMs += finalHoldMs;
@@ -896,11 +883,6 @@ namespace KillCam {
             next = RandomVictimShot(shot);
          }
          if (bustedMode) next = RandomBustedShot(first ? Shot.OrbitVictim : shot);
-         if (special && first) {
-            next = Shot.FullOrbit;
-            finalShotChosen = true;
-            finalShotStarted = true;
-         }
 
          shot = next;
          shotStartTick = Environment.TickCount;
@@ -918,7 +900,7 @@ namespace KillCam {
          // random starting angle for variety
          angle += (float)(rng.NextDouble() * Math.PI - Math.PI / 2.0);
          // a kill from behind: start on the victim's face side so the reaction is visible
-         if (matchKill && behindKill && frontKnown && !IsActorShot() && !deathMode && shot != Shot.FullOrbit) {
+         if (matchKill && behindKill && frontKnown && !IsActorShot() && !deathMode) {
             angle = frontAngle + (float)(rng.NextDouble() * 1.2 - 0.6);
          }
          Debug("shot " + shot.ToString());
@@ -1160,12 +1142,6 @@ namespace KillCam {
                target = new Vector3(midp.X, midp.Y, midp.Z + 0.6f);
                break;
             }
-            case Shot.FullOrbit: {
-               // rare special: one slow full circle around the victim, rising a little
-               pos = ClearPosition(lastVictimPos, angle, orbitRadius + 1.0f, orbitHeight + 0.7f + 0.6f * ShotT());
-               target = victimHead;
-               break;
-            }
             case Shot.Telephoto: {
                // distant long-lens shot that slowly closes in
                if (!hasFixedPos) { fixedPos = ClearPosition(lastVictimPos, angle, 16.0f, 1.8f); hasFixedPos = true; }
@@ -1353,9 +1329,6 @@ namespace KillCam {
          lastFrameTick = now;
          if (shot == Shot.OrbitVictim || shot == Shot.HighCrane || shot == Shot.DutchOrbit || shot == Shot.ActorOrbit) {
             angle += shotDir * orbitSpeedDeg * dt * (float)Math.PI / 180.0f;
-         }
-         if (shot == Shot.FullOrbit) {
-            angle += shotDir * (360.0f / (activeShotMs / 1000.0f)) * dt * (float)Math.PI / 180.0f;
          }
          PositionCamera();
       }
