@@ -22,7 +22,13 @@ namespace KillCam {
          HighCrane,
          OverShoulder,
          ActorFace,
-         ActorWide
+         ActorWide,
+         DollyIn,
+         SideTrack,
+         TopDown,
+         LowRise,
+         DutchOrbit,
+         ZoomPull
       }
 
       // a nearby ped plus what we need to tell a direct kill from a bleed-out
@@ -100,6 +106,13 @@ namespace KillCam {
       private bool effectOn = false;
       private Random rng = new Random();
 
+      // interior handling: Normal, Tight (much closer cameras) or Disabled (no camera indoors)
+      private string interiorMode = "Tight";
+      private bool interior = false;
+      private float interiorScale = 0.5f;
+      private int lastIniCheckTick = 0;
+      private DateTime lastIniWrite = DateTime.MinValue;
+
       public KillCam() {
          LoadSettings();
          this.Interval = 100;
@@ -110,36 +123,129 @@ namespace KillCam {
       private void LoadSettings() {
          try {
             if (!File.Exists(Settings.Filename)) {
-               Settings.SetValue("Enabled", "General", true);
-               Settings.SetValue("ChancePercent", "General", 20);
-               Settings.SetValue("CooldownMs", "General", 45000);
-               Settings.SetValue("LastEnemyOnly", "General", true);
-               Settings.SetValue("ScanRadius", "General", 40.0f);
-               Settings.SetValue("Debug", "General", false);
-               Settings.SetValue("DurationMs", "Camera", 7000);
-               Settings.SetValue("ShotLengthMs", "Camera", 3500);
-               Settings.SetValue("EndOnPlayerPercent", "Camera", 60);
-               Settings.SetValue("SlowMotionScale", "Camera", 0.1f);
-               Settings.SetValue("OrbitRadius", "Camera", 1.9f);
-               Settings.SetValue("OrbitHeight", "Camera", 0.5f);
-               Settings.SetValue("OrbitSpeedDegPerSec", "Camera", 12.0f);
-               Settings.SetValue("Invincible", "Player", true);
-               Settings.SetValue("LockPlayerControl", "Player", false);
-               Settings.SetValue("DeathCam", "Death", true);
-               Settings.SetValue("DeathCamChancePercent", "Death", 100);
-               Settings.SetValue("Enabled", "Light", true);
-               Settings.SetValue("Range", "Light", 4.5f);
-               Settings.SetValue("Intensity", "Light", 50.0f);
-               Settings.SetValue("HitDropThreshold", "General", 6);
-               Settings.SetValue("KillWindowMs", "General", 1500);
-               Settings.SetValue("WallClearance", "Camera", 1.3f);
-               Settings.SetValue("Timecycles", "Effect", "Steel,Cinema,Eclipse");
-               Settings.SetValue("EffectMs", "Effect", 7000);
-               Settings.Save();
+               WriteDefaultIni();
+               Settings.Load();
             }
+            lastIniWrite = File.GetLastWriteTime(Settings.Filename);
          } catch (Exception ex) {
             Game.Console.Print("KillCam could not create ini: " + ex.Message);
          }
+         ReadSettings();
+      }
+
+      // Reloads the ini when it is saved while the game is running (checked about once a second).
+      private void CheckIniReload() {
+         int now = Environment.TickCount;
+         if (now - lastIniCheckTick < 1000) return;
+         lastIniCheckTick = now;
+         try {
+            DateTime w = File.GetLastWriteTime(Settings.Filename);
+            if (w != lastIniWrite) {
+               lastIniWrite = w;
+               Settings.Load();
+               ReadSettings();
+               Game.Console.Print("KillCam: settings reloaded");
+            }
+         } catch (Exception) { }
+      }
+
+      private void WriteDefaultIni() {
+         string[] lines = new string[] {
+            "// KillCam settings. Saved changes are picked up while the game is running.",
+            "// Lines starting with // are comments.",
+            "",
+            "[General]",
+            "// Master switch",
+            "Enabled=true",
+            "// Chance (0-100) that a qualifying kill triggers the kill cam",
+            "ChancePercent=20",
+            "// Minimum time between kill cams, in milliseconds",
+            "CooldownMs=45000",
+            "// true = only the last remaining enemy triggers it",
+            "LastEnemyOnly=true",
+            "// Radius (metres) around the player that is watched for kills",
+            "ScanRadius=40",
+            "// Prints debug lines to the console (~)",
+            "Debug=false",
+            "// A single health drop at least this big counts as a hit (bleeding drops 1-2 at a time)",
+            "HitDropThreshold=6",
+            "// A death only counts as a kill if the last big hit was this recent (ms). Bleed-outs are ignored",
+            "KillWindowMs=1500",
+            "",
+            "[Camera]",
+            "// Total length of the cam in real milliseconds",
+            "DurationMs=7000",
+            "// Length of each shot in milliseconds",
+            "ShotLengthMs=3500",
+            "// Chance (0-100) that the last shot is on the player (face or wide shot)",
+            "EndOnPlayerPercent=60",
+            "// Game speed during the cam (0.05 - 1.0). Lower = slower",
+            "SlowMotionScale=0.1",
+            "// Orbit shot distance from the dead ped, metres",
+            "OrbitRadius=1.9",
+            "// Orbit shot height, metres",
+            "OrbitHeight=0.5",
+            "// Orbit rotation speed, degrees per real second",
+            "OrbitSpeedDegPerSec=12",
+            "// Cameras are pulled in when a wall is detected closer than this (metres)",
+            "WallClearance=1.3",
+            "// What to do when the player is inside an interior:",
+            "//   Tight    = use close, tight shots (default)",
+            "//   Disabled = no camera indoors",
+            "//   Normal   = same as outdoors (may clip walls)",
+            "InteriorMode=Tight",
+            "// Scale applied to distances in Tight mode (smaller = closer)",
+            "InteriorScale=0.5",
+            "",
+            "[Player]",
+            "// Player cannot be hurt during the cam",
+            "Invincible=true",
+            "// true = freeze player input during the cam. false = player keeps control while being forced to aim at the dead ped",
+            "LockPlayerControl=false",
+            "",
+            "[Death]",
+            "// Reverse logic: when an enemy kills the player, play the cam on the player's body",
+            "DeathCam=true",
+            "DeathCamChancePercent=100",
+            "",
+            "[Light]",
+            "// Soft light on the player's face during the face close-up",
+            "Enabled=true",
+            "Range=4.5",
+            "Intensity=50",
+            "",
+            "[Effect]",
+            "// How long the screen effect stays on (ms)",
+            "EffectMs=7000",
+            "// Comma separated list; one is picked at random each time. Available names and what they look like:",
+            "//   Steel      cool, desaturated blue-steel grade with strong contrast (moody, thriller look)",
+            "//   Cinema     high-contrast filmic grade, slightly teal shadows and warm highlights",
+            "//   Eclipse    dark and dramatic, deep red-purple shadows with a dim overall tone",
+            "//   Hot        very warm orange-red wash, like a heat haze",
+            "//   Fire       similar to Hot but stronger glow and punchier contrast",
+            "//   Sepia      old-photo brown tint, mostly monochrome",
+            "//   Noire      dark, near black-and-white with heavy contrast and thick fog",
+            "//   Rouge      strong red tint over everything",
+            "//   Verte      green tint, murky jungle/night-vision feel",
+            "//   Bronze     golden-bronze warm tint, soft and low-contrast",
+            "//   Vintage    faded retro look with olive-yellow tones",
+            "//   Romantic   soft pink-magenta glow with a dreamy blur",
+            "//   Neon       saturated pink/purple club look with bloom",
+            "//   Ulraviolet deep blue-violet tint, like black light",
+            "//   Psyche     very strong psychedelic colours, warped and blurry (extreme)",
+            "//   Muddy      dull brown-grey, washed out and heavy",
+            "//   Classic    clean neutral contrast boost, closest to normal",
+            "//   Tweaked    heavy pink/green colour split with high contrast (stylised)",
+            "//   Sketch     flat, high-contrast, comic-like grade",
+            "//   colors     slightly boosted colour saturation",
+            "//   death      the game's own wasted/death look: desaturated, dark edges",
+            "//   injured    heavy desaturation and blur, like low health",
+            "Timecycles=Steel,Cinema,Eclipse"
+         };
+         File.WriteAllLines(Settings.Filename, lines);
+      }
+
+      private void ReadSettings() {
          enabled = Settings.GetValueBool("Enabled", "General", true);
          chancePercent = Settings.GetValueInteger("ChancePercent", "General", 20);
          cooldownMs = Settings.GetValueInteger("CooldownMs", "General", 45000);
@@ -163,6 +269,10 @@ namespace KillCam {
          hitDropThreshold = Settings.GetValueInteger("HitDropThreshold", "General", 6);
          killWindowMs = Settings.GetValueInteger("KillWindowMs", "General", 1500);
          camClearance = Settings.GetValueFloat("WallClearance", "Camera", 1.3f);
+         interiorMode = Settings.GetValueString("InteriorMode", "Camera", "Tight").Trim();
+         interiorScale = Settings.GetValueFloat("InteriorScale", "Camera", 0.5f);
+         if (interiorScale < 0.2f) interiorScale = 0.2f;
+         if (interiorScale > 1.0f) interiorScale = 1.0f;
          effectMs = Settings.GetValueInteger("EffectMs", "Effect", 7000);
 
          // comma separated list; one is picked at random each time
@@ -190,6 +300,7 @@ namespace KillCam {
             if (state == CamState.Playing) {
                UpdateCamera();
             } else {
+               CheckIniReload();
                ScanForKills();
             }
          } catch (Exception ex) {
@@ -298,6 +409,12 @@ namespace KillCam {
       }
 
       private void BeginCamera(Ped focus, Ped actingPed, bool death) {
+         interior = false;
+         try {
+            interior = GTA.Native.Function.Call<bool>("IS_INTERIOR_SCENE");
+         } catch (Exception) { }
+         if (interior && string.Compare(interiorMode, "Disabled", true) == 0) { Debug("skipped: interior"); return; }
+         if (interior && string.Compare(interiorMode, "Normal", true) == 0) interior = false;
          victim = focus;
          actor = actingPed;
          deathMode = death;
@@ -344,9 +461,14 @@ namespace KillCam {
          return new Vector3(lastActorPos.X, lastActorPos.Y, lastActorPos.Z + 1.6f);
       }
 
-      // Space on keyboard and A on a controller are both bound to Sprint in GTA IV
+      // Jump only: Space on keyboard, X on a controller. Sprint (Shift) must not skip.
       private bool SkipPressed() {
-         return isKeyPressed(System.Windows.Forms.Keys.Space) || Game.isGameKeyPressed(GameKey.Sprint);
+         return Game.isGameKeyPressed(GameKey.Jump);
+      }
+
+      // scales distances down for the tight interior mode
+      private float S(float v) {
+         return interior ? v * interiorScale : v;
       }
 
       // Forces the aim without locking input. Without the lock, player input can cancel the task,
@@ -362,12 +484,19 @@ namespace KillCam {
       // Heuristic wall check: if the first surface below a point high above it is much higher
       // than the subject, something solid (wall, roof, car) is in the way.
       private bool IsBlocked(Vector3 p, float subjectZ) {
+         // indoors the ceiling always looks like a blocker, so the heuristic is skipped
+         if (interior) return false;
          float ground = World.GetGroundZ(new Vector3(p.X, p.Y, subjectZ + 6.0f), GroundType.NextBelowCurrent);
          return ground > subjectZ + camClearance;
       }
 
       // Tries the wanted spot, then closer and higher ones, and returns the first clear one.
       private Vector3 ClearPosition(Vector3 center, float ang, float radius, float height) {
+         if (interior) {
+            float h = S(height);
+            if (h > 1.4f) h = 1.4f;
+            return Offset(center, ang, S(radius), h);
+         }
          float[] scales = new float[] { 1.0f, 0.75f, 0.55f };
          for (int i = 0; i < scales.Length; i++) {
             Vector3 p = Offset(center, ang, radius * scales[i], height + (1.0f - scales[i]) * 2.5f);
@@ -399,7 +528,9 @@ namespace KillCam {
          if (isFinal && !finalShotChosen) {
             finalShotChosen = true;
             if (rng.Next(100) < endOnPlayerPercent) {
-               next = (rng.Next(2) == 0) ? Shot.ActorFace : Shot.ActorWide;
+               // in a death cam the actor is the killer, so never push in on their face
+               if (deathMode) next = Shot.ActorWide;
+               else next = (rng.Next(2) == 0) ? Shot.ActorFace : Shot.ActorWide;
             } else {
                next = RandomVictimShot(shot);
             }
@@ -412,6 +543,7 @@ namespace KillCam {
          shotDir = (rng.Next(2) == 0) ? 1.0f : -1.0f;
          hasFixedPos = false;
          cam.FOV = 42.0f;
+         cam.Roll = 0.0f;
 
          Vector3 pp = ActorPos();
          Vector3 target = IsActorShot() ? pp : lastVictimPos;
@@ -424,7 +556,13 @@ namespace KillCam {
       }
 
       private Shot RandomVictimShot(Shot previous) {
-         Shot[] options = new Shot[] { Shot.OrbitVictim, Shot.LowFront, Shot.HighCrane, Shot.OverShoulder };
+         Shot[] options;
+         if (interior) {
+            options = new Shot[] { Shot.OrbitVictim, Shot.LowFront, Shot.OverShoulder, Shot.DollyIn, Shot.LowRise, Shot.DutchOrbit };
+         } else {
+            options = new Shot[] { Shot.OrbitVictim, Shot.LowFront, Shot.HighCrane, Shot.OverShoulder,
+               Shot.DollyIn, Shot.SideTrack, Shot.TopDown, Shot.LowRise, Shot.DutchOrbit, Shot.ZoomPull };
+         }
          Shot pick = options[rng.Next(options.Length)];
          if (pick == previous) pick = options[(Array.IndexOf(options, pick) + 1) % options.Length];
          return pick;
@@ -439,6 +577,13 @@ namespace KillCam {
             center.X + (float)Math.Cos(ang) * radius,
             center.Y + (float)Math.Sin(ang) * radius,
             center.Z + height);
+      }
+
+      private float ShotT() {
+         float t = (Environment.TickCount - shotStartTick) / (float)shotLengthMs;
+         if (t < 0.0f) t = 0.0f;
+         if (t > 1.0f) t = 1.0f;
+         return t;
       }
 
       private void PositionCamera() {
@@ -479,14 +624,15 @@ namespace KillCam {
                float hdg = ((actor != null && actor.Exists()) ? actor.Heading : 0.0f) * (float)Math.PI / 180.0f;
                if (!hasFixedPos) {
                   faceScale = 1.0f;
-                  if (IsBlocked(Offset(hd, hdg + 0.5f, 1.5f, 0.2f), pp.Z)) faceScale = 0.55f;
+                  if (IsBlocked(Offset(hd, hdg + 0.5f, 2.3f, 0.2f), pp.Z)) faceScale = 0.65f;
                   hasFixedPos = true;
                }
                float faceAngle = hdg + 0.45f + t * 0.5f;
-               float faceDist = (1.5f - 0.6f * t) * faceScale;
-               pos = Offset(hd, faceAngle, faceDist, 0.3f - 0.25f * t);
+               float faceDist = S((2.3f - 0.5f * t) * faceScale);
+               // roughly head height, easing slightly lower as it pushes in
+               pos = Offset(hd, faceAngle, faceDist, 0.05f - 0.15f * t);
                target = hd;
-               cam.FOV = 46.0f - 12.0f * t;
+               cam.FOV = 44.0f - 8.0f * t;
                if (faceLight) {
                   // a soft light between the camera and the face, a little above it
                   Vector3 lp = new Vector3(hd.X + (pos.X - hd.X) * 0.6f, hd.Y + (pos.Y - hd.Y) * 0.6f, hd.Z + 0.35f);
@@ -509,6 +655,54 @@ namespace KillCam {
                }
                pos = fixedPos;
                target = new Vector3((pp.X + lastVictimPos.X) * 0.5f, (pp.Y + lastVictimPos.Y) * 0.5f, (pp.Z + lastVictimPos.Z) * 0.5f + 0.7f);
+               break;
+            case Shot.DollyIn: {
+               // slow push toward the victim
+               float td = ShotT();
+               pos = ClearPosition(lastVictimPos, angle, 3.4f - 1.7f * td, 1.0f - 0.3f * td);
+               target = victimHead;
+               break;
+            }
+            case Shot.SideTrack: {
+               // camera glides sideways past the victim
+               float ts = ShotT();
+               float tang = angle + (float)Math.PI / 2.0f;
+               Vector3 basePos = ClearPosition(lastVictimPos, angle, 2.8f, 0.9f);
+               float slide = (ts - 0.5f) * 3.5f * shotDir;
+               pos = new Vector3(basePos.X + (float)Math.Cos(tang) * slide, basePos.Y + (float)Math.Sin(tang) * slide, basePos.Z);
+               target = victimHead;
+               break;
+            }
+            case Shot.TopDown: {
+               // overhead shot with a slow roll
+               float tt = ShotT();
+               pos = Offset(lastVictimPos, angle, 0.4f, 5.0f - 1.0f * tt);
+               if (IsBlocked(pos, lastVictimPos.Z)) pos = ClearPosition(lastVictimPos, angle, 2.2f, 2.2f);
+               cam.Roll = shotDir * 35.0f * tt;
+               cam.FOV = 55.0f;
+               target = victimHead;
+               break;
+            }
+            case Shot.LowRise: {
+               // starts almost on the floor and rises with a slight tilt
+               float tr = ShotT();
+               pos = ClearPosition(lastVictimPos, angle, 2.3f, 0.15f + 1.3f * tr);
+               cam.Roll = shotDir * 6.0f * (1.0f - tr);
+               target = victimHead;
+               break;
+            }
+            case Shot.DutchOrbit:
+               // orbit with a tilted horizon
+               pos = ClearPosition(lastVictimPos, angle, orbitRadius + 0.6f, orbitHeight + 0.4f);
+               cam.Roll = shotDir * 14.0f;
+               target = victimHead;
+               break;
+            case Shot.ZoomPull:
+               // fixed far camera with a lens zoom that pulls out
+               if (!hasFixedPos) { fixedPos = ClearPosition(lastVictimPos, angle, 6.0f, 1.6f); hasFixedPos = true; }
+               pos = fixedPos;
+               cam.FOV = 20.0f + 28.0f * ShotT();
+               target = victimHead;
                break;
             default:
                pos = ClearPosition(lastVictimPos, angle, orbitRadius, orbitHeight + 0.6f);
@@ -556,7 +750,7 @@ namespace KillCam {
          // orbit speed uses real time, so slow motion does not stall the camera
          float dt = (now - lastFrameTick) / 1000.0f;
          lastFrameTick = now;
-         if (shot == Shot.OrbitVictim || shot == Shot.HighCrane) {
+         if (shot == Shot.OrbitVictim || shot == Shot.HighCrane || shot == Shot.DutchOrbit) {
             angle += shotDir * orbitSpeedDeg * dt * (float)Math.PI / 180.0f;
          }
          PositionCamera();

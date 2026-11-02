@@ -9,7 +9,7 @@ Install: install ScriptHookDotNet, copy `KillCam.cs` to `<GTA IV>/scripts/`. `Ki
 - Camera cuts every `ShotLengthMs` between random shots: orbit victim, low front, high crane, over-the-shoulder. The final shot is the player (orbit or close-up) with `EndOnPlayerPercent` chance.
 - A **timecycle** effect plays for `EffectMs`. `Timecycles` is a comma-separated list of modifier names (one picked at random); an unknown name may do nothing, so try others from the game's timecycle modifier files.
 
-- **Skip** with Space or controller A (both are Sprint in GTA IV). Hold-release first: a key held when the cam starts doesn't skip.
+- **Skip** with the Jump button only (Space on keyboard, the Jump button on a controller). Shift does not skip. Hold-release first: a key held when the cam starts doesn't skip.
 - The player aims at the victim during the cam. By default input is NOT locked: the aim task is re-issued every 300 ms, so moving may briefly fight it. `LockPlayerControl=true` freezes input instead.
 - Bleed-outs are ignored: only a sudden health drop (`HitDropThreshold`) within `KillWindowMs` of death counts as a kill.
 - Victim shots are kept higher and moved off walls using a ground-height heuristic (`WallClearance`).
@@ -20,3 +20,9 @@ Install: install ScriptHookDotNet, copy `KillCam.cs` to `<GTA IV>/scripts/`. `Ki
 
 Set `ChancePercent=100`, `CooldownMs=0`, `LastEnemyOnly=false` and `Debug=true` to test; debug text goes to the in-game console (`~`).
 Not compiled or tested in-game.
+
+## Newer options
+- More shots: dolly-in, side track, top-down roll, low rise, Dutch-angle orbit, zoom pull-out. In the death cam the camera never zooms on the killer's face.
+- `InteriorMode` (`Tight` / `Disabled` / `Normal`) and `InteriorScale` control behaviour indoors.
+- The ini is reloaded automatically when saved during play. It ships with comments describing each timecycle.
+- Delete the old `KillCam.ini` to get the commented defaults.
