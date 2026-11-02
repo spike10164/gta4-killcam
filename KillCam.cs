@@ -31,16 +31,16 @@ namespace KillCam {
       private int cooldownMs = 45000;
       private bool lastEnemyOnly = true;
       private float scanRadius = 40.0f;
-      private int durationMs = 5500;
-      private int shotLengthMs = 1700;
+      private int durationMs = 7000;
+      private int shotLengthMs = 3500;
       private int endOnPlayerPercent = 60;
-      private float slowScale = 0.15f;
+      private float slowScale = 0.1f;
       private float orbitRadius = 1.9f;
       private float orbitHeight = 0.5f;
-      private float orbitSpeedDeg = 40.0f; // degrees per real second
+      private float orbitSpeedDeg = 12.0f; // degrees per real second
       private bool invincible = true;
-      private string[] timecycles = new string[] { "bleachbypass" };
-      private int effectMs = 3000;
+      private string[] timecycles = new string[] { "Steel", "Cinema", "Eclipse" };
+      private int effectMs = 7000;
       private bool debug = false;
 
       private List<Ped> tracked = new List<Ped>();
@@ -77,16 +77,16 @@ namespace KillCam {
                Settings.SetValue("LastEnemyOnly", "General", true);
                Settings.SetValue("ScanRadius", "General", 40.0f);
                Settings.SetValue("Debug", "General", false);
-               Settings.SetValue("DurationMs", "Camera", 5500);
-               Settings.SetValue("ShotLengthMs", "Camera", 1700);
+               Settings.SetValue("DurationMs", "Camera", 7000);
+               Settings.SetValue("ShotLengthMs", "Camera", 3500);
                Settings.SetValue("EndOnPlayerPercent", "Camera", 60);
-               Settings.SetValue("SlowMotionScale", "Camera", 0.15f);
+               Settings.SetValue("SlowMotionScale", "Camera", 0.1f);
                Settings.SetValue("OrbitRadius", "Camera", 1.9f);
                Settings.SetValue("OrbitHeight", "Camera", 0.5f);
-               Settings.SetValue("OrbitSpeedDegPerSec", "Camera", 40.0f);
+               Settings.SetValue("OrbitSpeedDegPerSec", "Camera", 12.0f);
                Settings.SetValue("Invincible", "Player", true);
-               Settings.SetValue("Timecycles", "Effect", "bleachbypass");
-               Settings.SetValue("EffectMs", "Effect", 3000);
+               Settings.SetValue("Timecycles", "Effect", "Steel,Cinema,Eclipse");
+               Settings.SetValue("EffectMs", "Effect", 7000);
                Settings.Save();
             }
          } catch (Exception ex) {
@@ -98,18 +98,18 @@ namespace KillCam {
          lastEnemyOnly = Settings.GetValueBool("LastEnemyOnly", "General", true);
          scanRadius = Settings.GetValueFloat("ScanRadius", "General", 40.0f);
          debug = Settings.GetValueBool("Debug", "General", false);
-         durationMs = Settings.GetValueInteger("DurationMs", "Camera", 5500);
-         shotLengthMs = Settings.GetValueInteger("ShotLengthMs", "Camera", 1700);
+         durationMs = Settings.GetValueInteger("DurationMs", "Camera", 7000);
+         shotLengthMs = Settings.GetValueInteger("ShotLengthMs", "Camera", 3500);
          endOnPlayerPercent = Settings.GetValueInteger("EndOnPlayerPercent", "Camera", 60);
-         slowScale = Settings.GetValueFloat("SlowMotionScale", "Camera", 0.15f);
+         slowScale = Settings.GetValueFloat("SlowMotionScale", "Camera", 0.1f);
          orbitRadius = Settings.GetValueFloat("OrbitRadius", "Camera", 1.9f);
          orbitHeight = Settings.GetValueFloat("OrbitHeight", "Camera", 0.5f);
-         orbitSpeedDeg = Settings.GetValueFloat("OrbitSpeedDegPerSec", "Camera", 40.0f);
+         orbitSpeedDeg = Settings.GetValueFloat("OrbitSpeedDegPerSec", "Camera", 12.0f);
          invincible = Settings.GetValueBool("Invincible", "Player", true);
-         effectMs = Settings.GetValueInteger("EffectMs", "Effect", 3000);
+         effectMs = Settings.GetValueInteger("EffectMs", "Effect", 7000);
 
          // comma separated list; one is picked at random each time
-         string list = Settings.GetValueString("Timecycles", "Effect", "bleachbypass");
+         string list = Settings.GetValueString("Timecycles", "Effect", "Steel,Cinema,Eclipse");
          if (list != null && list.Trim().Length > 0) {
             string[] parts = list.Split(',');
             for (int i = 0; i < parts.Length; i++) parts[i] = parts[i].Trim();
