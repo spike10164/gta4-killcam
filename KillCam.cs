@@ -75,7 +75,16 @@ namespace KillCam {
       private bool deathCam = true;
       private int deathChancePercent = 100;
       private bool deathMode = false;
+      private bool bustedMode = false;
+      private Vector3 deathStartPos;
       private bool deathHandled = false;
+      private bool bustedCam = true;
+      private bool bustedHandled = false;
+      private int deathHoldMs = 30000;
+      private float deathTimeScale = 0.05f;
+      private bool holdFade = true;
+      private bool forceAim = false;
+      private int activeDurationMs = 7000;
 
       // light on the actor's face during the face shot
       private bool faceLight = true;
@@ -202,11 +211,22 @@ namespace KillCam {
             "Invincible=true",
             "// true = freeze player input during the cam. false = player keeps control while being forced to aim at the dead ped",
             "LockPlayerControl=false",
+            "// Experimental. Makes the player aim at the dead ped. This takes over the player's movement and shooting",
+            "// and can cause camera jitter, so it is off by default",
+            "ForceAim=false",
             "",
             "[Death]",
             "// Reverse logic: when an enemy kills the player, play the cam on the player's body",
             "DeathCam=true",
             "DeathCamChancePercent=100",
+            "// Also play the cam when the player is busted (arrested). The nearest ped is used as the arresting officer",
+            "BustedCam=true",
+            "// How long (ms) the death/busted cam is held before the game is allowed to respawn you. Jump skips it",
+            "HoldMs=30000",
+            "// Game speed while holding (0.01 - 1.0). Very low speed stretches the game's own respawn timers",
+            "HoldTimeScale=0.05",
+            "// Keep forcing the screen to stay faded in while holding, so the fade to black does not hide the cam",
+            "KeepScreenVisible=true",
             "",
             "[Light]",
             "// Soft light on the player's face during the face close-up",
@@ -262,6 +282,13 @@ namespace KillCam {
          invincible = Settings.GetValueBool("Invincible", "Player", true);
          lockPlayer = Settings.GetValueBool("LockPlayerControl", "Player", false);
          deathCam = Settings.GetValueBool("DeathCam", "Death", true);
+         bustedCam = Settings.GetValueBool("BustedCam", "Death", true);
+         deathHoldMs = Settings.GetValueInteger("HoldMs", "Death", 30000);
+         deathTimeScale = Settings.GetValueFloat("HoldTimeScale", "Death", 0.05f);
+         holdFade = Settings.GetValueBool("KeepScreenVisible", "Death", true);
+         forceAim = Settings.GetValueBool("ForceAim", "Player", false);
+         if (deathTimeScale < 0.01f) deathTimeScale = 0.01f;
+         if (deathTimeScale > 1.0f) deathTimeScale = 1.0f;
          deathChancePercent = Settings.GetValueInteger("DeathCamChancePercent", "Death", 100);
          faceLight = Settings.GetValueBool("Enabled", "Light", true);
          lightRange = Settings.GetValueFloat("Range", "Light", 4.5f);
@@ -345,6 +372,18 @@ namespace KillCam {
          }
          deathHandled = false;
 
+         if (bustedCam) {
+            bool arrested = false;
+            try { arrested = GTA.Native.Function.Call<bool>("IS_PLAYER_BEING_ARRESTED"); } catch (Exception) { }
+            if (!arrested) {
+               bustedHandled = false;
+            } else if (!bustedHandled) {
+               bustedHandled = true;
+               TryStartBustedCamera(player);
+               return;
+            }
+         }
+
          Ped killed = null;
          int now = Environment.TickCount;
          for (int i = tracked.Count - 1; i >= 0; i--) {
@@ -408,7 +447,36 @@ namespace KillCam {
          BeginCamera(player, killer, true);
       }
 
+      private void TryStartBustedCamera(Ped player) {
+         if (rng.Next(100) >= deathChancePercent) return;
+         Ped cop = null;
+         float best = 100000.0f;
+         for (int i = 0; i < tracked.Count; i++) {
+            Ped p = tracked[i].Ped;
+            if (p == null || !p.Exists() || p.isDead || p.Equals(player)) continue;
+            float d = p.Position.DistanceTo(player.Position);
+            if (d < best) { best = d; cop = p; }
+         }
+         if (cop == null) { Debug("busted cam skipped: nobody nearby"); return; }
+         BeginCamera(player, cop, true, true);
+      }
+
+      // Fades the screen back in if the game's wasted/busted fade-out starts
+      private void KeepVisible() {
+         try {
+            if (!GTA.Native.Function.Call<bool>("IS_SCREEN_FADED_IN")) {
+               GTA.Native.Function.Call("DO_SCREEN_FADE_IN", 0);
+            }
+         } catch (Exception) { }
+      }
+
       private void BeginCamera(Ped focus, Ped actingPed, bool death) {
+         BeginCamera(focus, actingPed, death, false);
+      }
+
+      private void BeginCamera(Ped focus, Ped actingPed, bool death, bool busted) {
+         bustedMode = busted;
+         deathStartPos = focus.Position;
          interior = false;
          try {
             interior = GTA.Native.Function.Call<bool>("IS_INTERIOR_SCENE");
@@ -430,7 +498,8 @@ namespace KillCam {
          ChooseShot(true);
          cam.Activate();
 
-         Game.TimeScale = slowScale;
+         activeDurationMs = death ? deathHoldMs : durationMs;
+         Game.TimeScale = death ? deathTimeScale : slowScale;
          if (!death) {
             Ped player = actor;
             if (invincible) {
@@ -440,7 +509,7 @@ namespace KillCam {
                Player.CanControlCharacter = false;
                controlLocked = true;
             }
-            AimAtVictim(player, true);
+            if (forceAim) AimAtVictim(player, true);
          }
          // the skip key must be released once before it counts, so a held sprint does not skip at once
          skipArmed = !SkipPressed();
@@ -524,7 +593,7 @@ namespace KillCam {
       // picks the next shot and sets up its starting camera state
       private void ChooseShot(bool first) {
          Shot next = Shot.OrbitVictim;
-         bool isFinal = (Environment.TickCount - startTick) + shotLengthMs >= durationMs;
+         bool isFinal = (Environment.TickCount - startTick) + shotLengthMs >= activeDurationMs;
          if (isFinal && !finalShotChosen) {
             finalShotChosen = true;
             if (rng.Next(100) < endOnPlayerPercent) {
@@ -720,9 +789,12 @@ namespace KillCam {
 
          // end when time is up, when the player skips, or when the situation changes:
          // kill cam ends if the player dies; death cam ends when the dead player ped is gone (respawn)
-         bool over = now - startTick >= durationMs;
+         bool over = now - startTick >= activeDurationMs;
          if (deathMode) {
             if (victim == null || !victim.Exists()) over = true;
+            else if (!bustedMode && !victim.isDead) over = true;
+            else if (bustedMode && victim.Position.DistanceTo(deathStartPos) > 25.0f) over = true;
+            if (!over && holdFade) KeepVisible();
          } else if (player == null || !player.Exists() || player.isDead) {
             over = true;
          }
@@ -742,10 +814,10 @@ namespace KillCam {
 
          if (now - shotStartTick >= shotLengthMs) {
             ChooseShot(false);
-            if (!deathMode) AimAtVictim(player, false);
+            if (!deathMode && forceAim) AimAtVictim(player, false);
          }
 
-         if (!deathMode && !lockPlayer && now - lastAimTick >= 300) AimAtVictim(player, false);
+         if (!deathMode && forceAim && now - lastAimTick >= 300) AimAtVictim(player, false);
 
          // orbit speed uses real time, so slow motion does not stall the camera
          float dt = (now - lastFrameTick) / 1000.0f;
@@ -770,7 +842,7 @@ namespace KillCam {
             Player.CanControlCharacter = true;
             controlLocked = false;
          }
-         if (state == CamState.Playing && !deathMode) {
+         if (state == CamState.Playing && !deathMode && forceAim) {
             Ped p2 = Player.Character;
             if (p2 != null && p2.Exists()) p2.Task.ClearAll();
          }
@@ -788,6 +860,7 @@ namespace KillCam {
          victim = null;
          actor = null;
          deathMode = false;
+         bustedMode = false;
          state = CamState.Idle;
          this.Interval = 100;
       }

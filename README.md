@@ -26,3 +26,8 @@ Not compiled or tested in-game.
 - `InteriorMode` (`Tight` / `Disabled` / `Normal`) and `InteriorScale` control behaviour indoors.
 - The ini is reloaded automatically when saved during play. It ships with comments describing each timecycle.
 - Delete the old `KillCam.ini` to get the commented defaults.
+
+## Death / busted hold
+- On death or a busted arrest the cam plays on the player and is held up to `HoldMs` (30 s) or until Jump is pressed, then the game respawns you. The game is slowed to `HoldTimeScale` and the screen is kept faded in. Whether the game's own respawn can be delayed this way is untested; tune `HoldTimeScale` / `KeepScreenVisible`.
+- `BustedCam=true` enables it for arrests.
+- `ForceAim` is now off by default (it locks movement/shooting and can jitter the camera).
