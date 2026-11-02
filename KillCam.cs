@@ -85,6 +85,8 @@ namespace KillCam {
       private int deathChancePercent = 100;
       private bool deathMode = false;
       private bool bustedMode = false;
+      private int guaranteeAfterMs = 300000;
+      private int lastKillCamTick = Environment.TickCount;
       private bool deathAnyCause = true;
       private bool noActor = false;
       private int activeShotMs = 3500;
@@ -195,6 +197,9 @@ namespace KillCam {
             "LastEnemyOnly=true",
             "// Radius (metres) around the player that is watched for kills",
             "ScanRadius=40",
+            "// If no kill cam has played on a ped for this long (ms), the next qualifying kill skips the chance roll",
+            "// and is guaranteed to trigger one. 0 = off",
+            "GuaranteeAfterMs=300000",
             "// Prints debug lines to the console (~)",
             "Debug=false",
             "// A single health drop at least this big counts as a hit (bleeding drops 1-2 at a time)",
@@ -308,6 +313,7 @@ namespace KillCam {
          lockPlayer = Settings.GetValueBool("LockPlayerControl", "Player", false);
          deathCam = Settings.GetValueBool("DeathCam", "Death", true);
          bustedCam = Settings.GetValueBool("BustedCam", "Death", true);
+         guaranteeAfterMs = Settings.GetValueInteger("GuaranteeAfterMs", "General", 300000);
          deathAnyCause = Settings.GetValueBool("DeathCamAnyCause", "Death", true);
          bustedCuts = Settings.GetValueInteger("BustedCuts", "Death", 2);
          if (bustedCuts < 1) bustedCuts = 1;
@@ -452,12 +458,20 @@ namespace KillCam {
          }
       }
 
+      // true when it has been too long since the last kill cam on a ped
+      private bool IsOverdue() {
+         return guaranteeAfterMs > 0 && Environment.TickCount - lastKillCamTick >= guaranteeAfterMs;
+      }
+
       private void TryStartCamera(Ped player, Ped killed) {
          if (Environment.TickCount - lastEndTick < cooldownMs) { Debug("skipped: cooldown"); return; }
          if (lastEnemyOnly && IsOtherEnemyAlive(player, killed)) { Debug("skipped: other enemy alive"); return; }
-         if (rng.Next(100) >= chancePercent) { Debug("skipped: chance roll"); return; }
+         if (IsOverdue()) {
+            Debug("kill cam overdue, guaranteed");
+         } else if (rng.Next(100) >= chancePercent) { Debug("skipped: chance roll"); return; }
 
          BeginCamera(killed, player, false);
+         if (state == CamState.Playing) lastKillCamTick = Environment.TickCount;
       }
 
       // Reverse logic: the player was killed, so the dead one is the player and the actor is the killer.
