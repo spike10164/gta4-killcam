@@ -15,5 +15,8 @@ Install: install ScriptHookDotNet, copy `KillCam.cs` to `<GTA IV>/scripts/`. `Ki
 - Victim shots are kept higher and moved off walls using a ground-height heuristic (`WallClearance`).
 - Final shot on the player is either a face close-up from his right side or a wide shot with both him and the victim.
 
+- **Face shot** is dynamic: it starts on the actor's right, pushes in, swings toward the front and tightens the lens. A soft light is drawn near the face so he's visible (`[Light]` Enabled/Range/Intensity).
+- **Death cam** (`[Death] DeathCam=true`): when an enemy kills the player, the roles reverse. The camera orbits the dead player and the final shot is the killer's face or a wide shot of both. It needs a killer (an enemy that damaged you or was still fighting). `DeathCamChancePercent` sets how often.
+
 Set `ChancePercent=100`, `CooldownMs=0`, `LastEnemyOnly=false` and `Debug=true` to test; debug text goes to the in-game console (`~`).
 Not compiled or tested in-game.

@@ -21,8 +21,8 @@ namespace KillCam {
          LowFront,
          HighCrane,
          OverShoulder,
-         PlayerFace,
-         PlayerWide
+         ActorFace,
+         ActorWide
       }
 
       // a nearby ped plus what we need to tell a direct kill from a bleed-out
@@ -63,6 +63,22 @@ namespace KillCam {
       private bool lockPlayer = true;
       private bool skipArmed = false;
       private bool controlLocked = false;
+
+      // death cam: when the player is killed by an enemy, the roles are reversed
+      private bool deathCam = true;
+      private int deathChancePercent = 100;
+      private bool deathMode = false;
+      private bool deathHandled = false;
+
+      // light on the actor's face during the face shot
+      private bool faceLight = true;
+      private float lightRange = 4.5f;
+      private float lightIntensity = 50.0f;
+
+      // the actor is the one who did the killing: the player normally, the enemy in a death cam
+      private Ped actor = null;
+      private Vector3 lastActorPos;
+      private float faceScale = 1.0f;
 
       private List<TrackedPed> tracked = new List<TrackedPed>();
       private CamState state = CamState.Idle;
@@ -107,6 +123,11 @@ namespace KillCam {
                Settings.SetValue("OrbitSpeedDegPerSec", "Camera", 12.0f);
                Settings.SetValue("Invincible", "Player", true);
                Settings.SetValue("LockPlayerControl", "Player", true);
+               Settings.SetValue("DeathCam", "Death", true);
+               Settings.SetValue("DeathCamChancePercent", "Death", 100);
+               Settings.SetValue("Enabled", "Light", true);
+               Settings.SetValue("Range", "Light", 4.5f);
+               Settings.SetValue("Intensity", "Light", 50.0f);
                Settings.SetValue("HitDropThreshold", "General", 6);
                Settings.SetValue("KillWindowMs", "General", 1500);
                Settings.SetValue("WallClearance", "Camera", 1.3f);
@@ -132,6 +153,11 @@ namespace KillCam {
          orbitSpeedDeg = Settings.GetValueFloat("OrbitSpeedDegPerSec", "Camera", 12.0f);
          invincible = Settings.GetValueBool("Invincible", "Player", true);
          lockPlayer = Settings.GetValueBool("LockPlayerControl", "Player", true);
+         deathCam = Settings.GetValueBool("DeathCam", "Death", true);
+         deathChancePercent = Settings.GetValueInteger("DeathCamChancePercent", "Death", 100);
+         faceLight = Settings.GetValueBool("Enabled", "Light", true);
+         lightRange = Settings.GetValueFloat("Range", "Light", 4.5f);
+         lightIntensity = Settings.GetValueFloat("Intensity", "Light", 50.0f);
          hitDropThreshold = Settings.GetValueInteger("HitDropThreshold", "General", 6);
          killWindowMs = Settings.GetValueInteger("KillWindowMs", "General", 1500);
          camClearance = Settings.GetValueFloat("WallClearance", "Camera", 1.3f);
@@ -192,10 +218,19 @@ namespace KillCam {
       // Peds that were already dead when first seen never trigger, so old corpses are ignored.
       private void ScanForKills() {
          Ped player = Player.Character;
-         if (player == null || !player.Exists() || player.isDead) {
+         if (player != null && player.Exists() && player.isDead) {
+            if (deathCam && !deathHandled) {
+               deathHandled = true;
+               TryStartDeathCamera(player);
+            }
             tracked.Clear();
             return;
          }
+         if (player == null || !player.Exists()) {
+            tracked.Clear();
+            return;
+         }
+         deathHandled = false;
 
          Ped killed = null;
          int now = Environment.TickCount;
@@ -237,8 +272,35 @@ namespace KillCam {
          if (lastEnemyOnly && IsOtherEnemyAlive(player, killed)) { Debug("skipped: other enemy alive"); return; }
          if (rng.Next(100) >= chancePercent) { Debug("skipped: chance roll"); return; }
 
-         victim = killed;
+         BeginCamera(killed, player, false);
+      }
+
+      // Reverse logic: the player was killed, so the dead one is the player and the actor is the killer.
+      private void TryStartDeathCamera(Ped player) {
+         if (rng.Next(100) >= deathChancePercent) { Debug("death cam skipped: chance roll"); return; }
+
+         // the killer is the nearest living ped that damaged the player, else the nearest one still fighting
+         Ped killer = null;
+         float best = 100000.0f;
+         for (int pass = 0; pass < 2 && killer == null; pass++) {
+            for (int i = 0; i < tracked.Count; i++) {
+               Ped p = tracked[i].Ped;
+               if (p == null || !p.Exists() || p.isDead || p.Equals(player)) continue;
+               if (pass == 0 ? !player.HasBeenDamagedBy(p) : !p.isInCombat) continue;
+               float d = p.Position.DistanceTo(player.Position);
+               if (d < best) { best = d; killer = p; }
+            }
+         }
+         if (killer == null) { Debug("death cam skipped: no killer found"); return; }
+         BeginCamera(player, killer, true);
+      }
+
+      private void BeginCamera(Ped focus, Ped actingPed, bool death) {
+         victim = focus;
+         actor = actingPed;
+         deathMode = death;
          lastVictimPos = victim.Position;
+         lastActorPos = actor.Position;
          cam = new Camera();
          cam.FOV = 42.0f;
          finalShotChosen = false;
@@ -250,21 +312,34 @@ namespace KillCam {
          cam.Activate();
 
          Game.TimeScale = slowScale;
-         if (invincible) {
-            player.Invincible = true;
+         if (!death) {
+            Ped player = actor;
+            if (invincible) {
+               player.Invincible = true;
+            }
+            if (lockPlayer) {
+               Player.CanControlCharacter = false;
+               controlLocked = true;
+            }
+            AimAtVictim(player);
          }
-         if (lockPlayer) {
-            Player.CanControlCharacter = false;
-            controlLocked = true;
-         }
-         AimAtVictim(player);
          // the skip key must be released once before it counts, so a held sprint does not skip at once
          skipArmed = !SkipPressed();
          StartEffect();
 
          state = CamState.Playing;
          this.Interval = 0;
-         Debug("started");
+         Debug(death ? "started (death cam)" : "started");
+      }
+
+      private Vector3 ActorPos() {
+         if (actor != null && actor.Exists()) lastActorPos = actor.Position;
+         return lastActorPos;
+      }
+
+      private Vector3 ActorHead() {
+         if (actor != null && actor.Exists()) return actor.GetBonePosition(Bone.Head);
+         return new Vector3(lastActorPos.X, lastActorPos.Y, lastActorPos.Z + 1.6f);
       }
 
       // Space on keyboard and A on a controller are both bound to Sprint in GTA IV
@@ -319,7 +394,7 @@ namespace KillCam {
          if (isFinal && !finalShotChosen) {
             finalShotChosen = true;
             if (rng.Next(100) < endOnPlayerPercent) {
-               next = (rng.Next(2) == 0) ? Shot.PlayerFace : Shot.PlayerWide;
+               next = (rng.Next(2) == 0) ? Shot.ActorFace : Shot.ActorWide;
             } else {
                next = RandomVictimShot(shot);
             }
@@ -331,11 +406,12 @@ namespace KillCam {
          shotStartTick = Environment.TickCount;
          shotDir = (rng.Next(2) == 0) ? 1.0f : -1.0f;
          hasFixedPos = false;
+         cam.FOV = 42.0f;
 
-         Vector3 pp = Player.Character.Position;
-         Vector3 target = IsPlayerShot() ? pp : lastVictimPos;
+         Vector3 pp = ActorPos();
+         Vector3 target = IsActorShot() ? pp : lastVictimPos;
          // start the orbit on the side facing the other character
-         Vector3 from = IsPlayerShot() ? lastVictimPos : pp;
+         Vector3 from = IsActorShot() ? lastVictimPos : pp;
          angle = (float)Math.Atan2(from.Y - target.Y, from.X - target.X);
          // random starting angle for variety
          angle += (float)(rng.NextDouble() * Math.PI - Math.PI / 2.0);
@@ -349,8 +425,8 @@ namespace KillCam {
          return pick;
       }
 
-      private bool IsPlayerShot() {
-         return shot == Shot.PlayerFace || shot == Shot.PlayerWide;
+      private bool IsActorShot() {
+         return shot == Shot.ActorFace || shot == Shot.ActorWide;
       }
 
       private Vector3 Offset(Vector3 center, float ang, float radius, float height) {
@@ -362,8 +438,7 @@ namespace KillCam {
 
       private void PositionCamera() {
          if (victim != null && victim.Exists()) lastVictimPos = victim.Position;
-         Ped player = Player.Character;
-         Vector3 pp = player.Position;
+         Vector3 pp = ActorPos();
          Vector3 victimHead = new Vector3(lastVictimPos.X, lastVictimPos.Y, lastVictimPos.Z + 0.4f);
          Vector3 pos;
          Vector3 target;
@@ -390,26 +465,31 @@ namespace KillCam {
                pos = fixedPos;
                target = victimHead;
                break;
-            case Shot.PlayerFace:
-               // close on the face from the player's right, a bit in front, clear of the gun arm
+            case Shot.ActorFace: {
+               // dynamic close-up: starts wide on the actor's right, pushes in, swings toward the front and tightens the lens
+               int nowTick = Environment.TickCount;
+               float t = (nowTick - shotStartTick) / (float)shotLengthMs;
+               if (t > 1.0f) t = 1.0f;
+               Vector3 hd = ActorHead();
+               float hdg = ((actor != null && actor.Exists()) ? actor.Heading : 0.0f) * (float)Math.PI / 180.0f;
                if (!hasFixedPos) {
-                  float h = player.Heading * (float)Math.PI / 180.0f;
-                  float fx = -(float)Math.Sin(h);
-                  float fy = (float)Math.Cos(h);
-                  float rx = (float)Math.Cos(h);
-                  float ry = (float)Math.Sin(h);
-                  Vector3 hd = player.GetBonePosition(Bone.Head);
-                  Vector3 want = new Vector3(hd.X + rx * 0.9f + fx * 0.9f, hd.Y + ry * 0.9f + fy * 0.9f, hd.Z + 0.15f);
-                  if (IsBlocked(want, pp.Z)) {
-                     want = new Vector3(hd.X + rx * 0.6f + fx * 0.5f, hd.Y + ry * 0.6f + fy * 0.5f, hd.Z + 0.9f);
-                  }
-                  fixedPos = want;
+                  faceScale = 1.0f;
+                  if (IsBlocked(Offset(hd, hdg + 0.5f, 1.5f, 0.2f), pp.Z)) faceScale = 0.55f;
                   hasFixedPos = true;
                }
-               pos = fixedPos;
-               target = player.GetBonePosition(Bone.Head);
+               float faceAngle = hdg + 0.45f + t * 0.5f;
+               float faceDist = (1.5f - 0.6f * t) * faceScale;
+               pos = Offset(hd, faceAngle, faceDist, 0.3f - 0.25f * t);
+               target = hd;
+               cam.FOV = 46.0f - 12.0f * t;
+               if (faceLight) {
+                  // a soft light between the camera and the face, a little above it
+                  Vector3 lp = new Vector3(hd.X + (pos.X - hd.X) * 0.6f, hd.Y + (pos.Y - hd.Y) * 0.6f, hd.Z + 0.35f);
+                  World.DrawLight(lp, System.Drawing.Color.FromArgb(255, 235, 200), lightRange, lightIntensity);
+               }
                break;
-            case Shot.PlayerWide:
+            }
+            case Shot.ActorWide:
                // pulled back to frame both the player and the dead ped
                if (!hasFixedPos) {
                   Vector3 mid = new Vector3((pp.X + lastVictimPos.X) * 0.5f, (pp.Y + lastVictimPos.Y) * 0.5f, (pp.Z + lastVictimPos.Z) * 0.5f);
@@ -434,8 +514,15 @@ namespace KillCam {
          int now = Environment.TickCount;
          Ped player = Player.Character;
 
-         // end early if the player dies, the time is up, or the player skips
-         if (player == null || !player.Exists() || player.isDead || now - startTick >= durationMs) {
+         // end when time is up, when the player skips, or when the situation changes:
+         // kill cam ends if the player dies; death cam ends when the dead player ped is gone (respawn)
+         bool over = now - startTick >= durationMs;
+         if (deathMode) {
+            if (victim == null || !victim.Exists()) over = true;
+         } else if (player == null || !player.Exists() || player.isDead) {
+            over = true;
+         }
+         if (over) {
             StopCamera();
             return;
          }
@@ -451,7 +538,7 @@ namespace KillCam {
 
          if (now - shotStartTick >= shotLengthMs) {
             ChooseShot(false);
-            AimAtVictim(player);
+            if (!deathMode) AimAtVictim(player);
          }
 
          // orbit speed uses real time, so slow motion does not stall the camera
@@ -466,7 +553,7 @@ namespace KillCam {
       private void StopCamera() {
          Game.TimeScale = 1.0f;
          StopEffect();
-         if (state == CamState.Playing && invincible) {
+         if (state == CamState.Playing && invincible && !deathMode) {
             Ped player = Player.Character;
             if (player != null && player.Exists()) player.Invincible = false;
          }
@@ -474,7 +561,7 @@ namespace KillCam {
             Player.CanControlCharacter = true;
             controlLocked = false;
          }
-         if (state == CamState.Playing) {
+         if (state == CamState.Playing && !deathMode) {
             Ped p2 = Player.Character;
             if (p2 != null && p2.Exists()) p2.Task.ClearAll();
          }
@@ -490,6 +577,8 @@ namespace KillCam {
             Debug("stopped");
          }
          victim = null;
+         actor = null;
+         deathMode = false;
          state = CamState.Idle;
          this.Interval = 100;
       }
