@@ -142,17 +142,17 @@ namespace KillCam {
       }
 
       private bool IsOtherEnemyAlive(Ped player, Ped killed) {
-         Ped[] nearby = World.GetPeds(player.Position, scanRadius);
-         for (int i = 0; i < nearby.Length; i++) {
-            Ped p = nearby[i];
+         for (int i = 0; i < tracked.Count; i++) {
+            Ped p = tracked[i];
             if (p == null || !p.Exists() || p.isDead || p.Equals(player) || p.Equals(killed)) continue;
             // an enemy is anyone still fighting, or anyone we already hurt
-            if (p.isInCombat || tracked.Contains(p)) return true;
+            if (p.isInCombat || p.HasBeenDamagedBy(player)) return true;
          }
          return false;
       }
 
-      // Watches living peds the player has hurt, and fires when one of them dies.
+      // Tracks every living ped nearby, so a one-shot kill between ticks is still seen.
+      // A death only counts as a kill if the player damaged that ped.
       // Peds that were already dead when first seen never trigger, so old corpses are ignored.
       private void ScanForKills() {
          Ped player = Player.Character;
@@ -168,7 +168,9 @@ namespace KillCam {
                tracked.RemoveAt(i);
             } else if (p.isDead) {
                tracked.RemoveAt(i);
-               if (killed == null) killed = p;
+               bool byPlayer = p.HasBeenDamagedBy(player);
+               Debug("ped died, damaged by player: " + byPlayer.ToString());
+               if (byPlayer && killed == null) killed = p;
             } else if (p.Position.DistanceTo(player.Position) > scanRadius * 1.5f) {
                tracked.RemoveAt(i);
             }
@@ -176,23 +178,20 @@ namespace KillCam {
 
          if (killed != null) {
             TryStartCamera(player, killed);
-            return;
          }
 
          Ped[] nearby = World.GetPeds(player.Position, scanRadius);
          for (int i = 0; i < nearby.Length; i++) {
             Ped p = nearby[i];
             if (p == null || !p.Exists() || p.isDead || p.Equals(player)) continue;
-            if (!tracked.Contains(p) && p.HasBeenDamagedBy(player)) {
-               tracked.Add(p);
-            }
+            if (!tracked.Contains(p)) tracked.Add(p);
          }
       }
 
       private void TryStartCamera(Ped player, Ped killed) {
-         if (Environment.TickCount - lastEndTick < cooldownMs) return;
-         if (lastEnemyOnly && IsOtherEnemyAlive(player, killed)) return;
-         if (rng.Next(100) >= chancePercent) return;
+         if (Environment.TickCount - lastEndTick < cooldownMs) { Debug("skipped: cooldown"); return; }
+         if (lastEnemyOnly && IsOtherEnemyAlive(player, killed)) { Debug("skipped: other enemy alive"); return; }
+         if (rng.Next(100) >= chancePercent) { Debug("skipped: chance roll"); return; }
 
          victim = killed;
          lastVictimPos = victim.Position;
