@@ -85,6 +85,10 @@ namespace KillCam {
       private int deathChancePercent = 100;
       private bool deathMode = false;
       private bool bustedMode = false;
+      private bool deathAnyCause = true;
+      private bool noActor = false;
+      private int activeShotMs = 3500;
+      private int bustedCuts = 2;
       private Vector3 deathStartPos;
       private bool deathHandled = false;
       private bool bustedCam = true;
@@ -236,6 +240,10 @@ namespace KillCam {
             "// Reverse logic: when an enemy kills the player, play the cam on the player's body",
             "DeathCam=true",
             "DeathCamChancePercent=100",
+            "// true = also play the death cam when the player dies with no killer (fall, explosion, drowning, car crash...)",
+            "DeathCamAnyCause=true",
+            "// Number of camera cuts during the busted cam (fewer = calmer). 1-4",
+            "BustedCuts=2",
             "// Also play the cam when the player is busted (arrested). The nearest ped is used as the arresting officer",
             "BustedCam=true",
             "// How long (ms) the death/busted cam is held before the game is allowed to respawn you. Jump skips it",
@@ -300,6 +308,9 @@ namespace KillCam {
          lockPlayer = Settings.GetValueBool("LockPlayerControl", "Player", false);
          deathCam = Settings.GetValueBool("DeathCam", "Death", true);
          bustedCam = Settings.GetValueBool("BustedCam", "Death", true);
+         deathAnyCause = Settings.GetValueBool("DeathCamAnyCause", "Death", true);
+         bustedCuts = Settings.GetValueInteger("BustedCuts", "Death", 2);
+         if (bustedCuts < 1) bustedCuts = 1;
          deathHoldMs = Settings.GetValueInteger("HoldMs", "Death", 30000);
          deathTimeScale = Settings.GetValueFloat("HoldTimeScale", "Death", 0.05f);
          holdFade = Settings.GetValueBool("KeepScreenVisible", "Death", true);
@@ -460,7 +471,10 @@ namespace KillCam {
                if (d < best) { best = d; killer = p; }
             }
          }
-         if (killer == null) { Debug("death cam skipped: no killer found"); return; }
+         if (killer == null) {
+            if (!deathAnyCause) { Debug("death cam skipped: no killer found"); return; }
+            Debug("death cam: no killer");
+         }
          BeginCamera(player, killer, true);
       }
 
@@ -481,9 +495,9 @@ namespace KillCam {
       // Fades the screen back in if the game's wasted/busted fade-out starts
       private void KeepVisible() {
          try {
-            if (!GTA.Native.Function.Call<bool>("IS_SCREEN_FADED_IN")) {
-               GTA.Native.Function.Call("DO_SCREEN_FADE_IN", 0);
-            }
+            // forced every tick: the game keeps trying to fade to black after a death or arrest
+            GTA.Native.Function.Call("DO_SCREEN_FADE_IN_UNHACKED", 0);
+            GTA.Native.Function.Call("DO_SCREEN_FADE_IN", 0);
          } catch (Exception) { }
       }
 
@@ -504,7 +518,10 @@ namespace KillCam {
          actor = actingPed;
          deathMode = death;
          lastVictimPos = victim.Position;
-         lastActorPos = actor.Position;
+         noActor = (actor == null);
+         lastActorPos = noActor ? victim.Position : actor.Position;
+         activeShotMs = shotLengthMs;
+         if (busted) activeShotMs = Math.Max(shotLengthMs, deathHoldMs / bustedCuts);
          cam = new Camera();
          cam.FOV = 42.0f;
          finalShotChosen = false;
@@ -610,12 +627,12 @@ namespace KillCam {
       // picks the next shot and sets up its starting camera state
       private void ChooseShot(bool first) {
          Shot next = Shot.OrbitVictim;
-         bool isFinal = (Environment.TickCount - startTick) + shotLengthMs >= activeDurationMs;
+         bool isFinal = (Environment.TickCount - startTick) + activeShotMs >= activeDurationMs;
          if (isFinal && !finalShotChosen) {
             finalShotChosen = true;
             if (rng.Next(100) < endOnPlayerPercent) {
                // in a death cam the actor is the killer, so never push in on their face
-               if (deathMode) next = Shot.ActorWide;
+               if (deathMode) next = noActor ? RandomVictimShot(shot) : Shot.ActorWide;
                else next = RandomActorShot();
             } else {
                next = RandomVictimShot(shot);
@@ -679,6 +696,8 @@ namespace KillCam {
          }
          Shot pick = options[rng.Next(options.Length)];
          if (pick == previous) pick = options[(Array.IndexOf(options, pick) + 1) % options.Length];
+         // no second character to frame: swap two-shots/over-shoulder for solo shots
+         if (noActor && (pick == Shot.TwoShot || pick == Shot.OverShoulder)) pick = Shot.OrbitVictim;
          return pick;
       }
 
@@ -695,7 +714,7 @@ namespace KillCam {
       }
 
       private float ShotT() {
-         float t = (Environment.TickCount - shotStartTick) / (float)shotLengthMs;
+         float t = (Environment.TickCount - shotStartTick) / (float)activeShotMs;
          if (t < 0.0f) t = 0.0f;
          if (t > 1.0f) t = 1.0f;
          return t;
@@ -733,7 +752,7 @@ namespace KillCam {
             case Shot.ActorFace: {
                // dynamic close-up: starts wide on the actor's right, pushes in, swings toward the front and tightens the lens
                int nowTick = Environment.TickCount;
-               float t = (nowTick - shotStartTick) / (float)shotLengthMs;
+               float t = (nowTick - shotStartTick) / (float)activeShotMs;
                if (t > 1.0f) t = 1.0f;
                Vector3 hd = ActorHead();
                float hdg = ((actor != null && actor.Exists()) ? actor.Heading : 0.0f) * (float)Math.PI / 180.0f;
@@ -934,7 +953,7 @@ namespace KillCam {
 
          if (effectOn && now - startTick >= effectMs) StopEffect();
 
-         if (now - shotStartTick >= shotLengthMs) {
+         if (now - shotStartTick >= activeShotMs) {
             ChooseShot(false);
             if (!deathMode && forceAim) AimAtVictim(player, false);
          }

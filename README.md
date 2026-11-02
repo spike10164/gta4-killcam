@@ -40,3 +40,8 @@ If `KillCam.ini` is deleted during play it is recreated automatically.
 
 ## More shots
 Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face and wide). They also appear mid-sequence in normal kill cams. Victim/scene: ground close-up, handheld close, flyby, two-shot.
+
+## Death/busted update
+- `DeathCamAnyCause=true` plays the death cam on any death (falls, explosions...), using solo shots when there is no killer.
+- `BustedCuts` (default 2) sets how many cuts the busted cam makes.
+- The screen is forced to stay faded in during the hold to stop the black screen.
