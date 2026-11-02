@@ -44,3 +44,8 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 - `DeathCamAnyCause=true` plays the death cam on any death (falls, explosions...), using solo shots when there is no killer.
 - `BustedCuts` (default 2) sets how many cuts the busted cam makes.
 - The screen is forced to stay faded in during the hold to stop the black screen.
+
+## Situation-aware cams
+- `SituationShots=true`: shots are weighted by kill distance (far = telephoto/bullet-follow/flyby, close = ground/handheld/dolly), weapon, and vehicles (car-side arc and low-front shots when you're driving; wider radii when anyone is in a vehicle).
+- `WeaponPacing=true`: sniper/shotgun/explosive kills run longer and slower, melee shorter and faster.
+- New styles: Telephoto, BulletFollow, PullBack, WhipPan, CrashZoom, CarSide, CarLowFront.
