@@ -31,16 +31,16 @@ namespace KillCam {
       private int cooldownMs = 45000;
       private bool lastEnemyOnly = true;
       private float scanRadius = 40.0f;
-      private int durationMs = 3200;
-      private int shotLengthMs = 1000;
+      private int durationMs = 5500;
+      private int shotLengthMs = 1700;
       private int endOnPlayerPercent = 60;
-      private float slowScale = 0.2f;
-      private float orbitRadius = 3.2f;
-      private float orbitHeight = 0.8f;
-      private float orbitSpeedDeg = 60.0f; // degrees per real second
+      private float slowScale = 0.15f;
+      private float orbitRadius = 1.9f;
+      private float orbitHeight = 0.5f;
+      private float orbitSpeedDeg = 40.0f; // degrees per real second
       private bool invincible = true;
       private string[] timecycles = new string[] { "bleachbypass" };
-      private int effectMs = 1800;
+      private int effectMs = 3000;
       private bool debug = false;
 
       private List<Ped> tracked = new List<Ped>();
@@ -77,16 +77,16 @@ namespace KillCam {
                Settings.SetValue("LastEnemyOnly", "General", true);
                Settings.SetValue("ScanRadius", "General", 40.0f);
                Settings.SetValue("Debug", "General", false);
-               Settings.SetValue("DurationMs", "Camera", 3200);
-               Settings.SetValue("ShotLengthMs", "Camera", 1000);
+               Settings.SetValue("DurationMs", "Camera", 5500);
+               Settings.SetValue("ShotLengthMs", "Camera", 1700);
                Settings.SetValue("EndOnPlayerPercent", "Camera", 60);
-               Settings.SetValue("SlowMotionScale", "Camera", 0.2f);
-               Settings.SetValue("OrbitRadius", "Camera", 3.2f);
-               Settings.SetValue("OrbitHeight", "Camera", 0.8f);
-               Settings.SetValue("OrbitSpeedDegPerSec", "Camera", 60.0f);
+               Settings.SetValue("SlowMotionScale", "Camera", 0.15f);
+               Settings.SetValue("OrbitRadius", "Camera", 1.9f);
+               Settings.SetValue("OrbitHeight", "Camera", 0.5f);
+               Settings.SetValue("OrbitSpeedDegPerSec", "Camera", 40.0f);
                Settings.SetValue("Invincible", "Player", true);
                Settings.SetValue("Timecycles", "Effect", "bleachbypass");
-               Settings.SetValue("EffectMs", "Effect", 1800);
+               Settings.SetValue("EffectMs", "Effect", 3000);
                Settings.Save();
             }
          } catch (Exception ex) {
@@ -98,15 +98,15 @@ namespace KillCam {
          lastEnemyOnly = Settings.GetValueBool("LastEnemyOnly", "General", true);
          scanRadius = Settings.GetValueFloat("ScanRadius", "General", 40.0f);
          debug = Settings.GetValueBool("Debug", "General", false);
-         durationMs = Settings.GetValueInteger("DurationMs", "Camera", 3200);
-         shotLengthMs = Settings.GetValueInteger("ShotLengthMs", "Camera", 1000);
+         durationMs = Settings.GetValueInteger("DurationMs", "Camera", 5500);
+         shotLengthMs = Settings.GetValueInteger("ShotLengthMs", "Camera", 1700);
          endOnPlayerPercent = Settings.GetValueInteger("EndOnPlayerPercent", "Camera", 60);
-         slowScale = Settings.GetValueFloat("SlowMotionScale", "Camera", 0.2f);
-         orbitRadius = Settings.GetValueFloat("OrbitRadius", "Camera", 3.2f);
-         orbitHeight = Settings.GetValueFloat("OrbitHeight", "Camera", 0.8f);
-         orbitSpeedDeg = Settings.GetValueFloat("OrbitSpeedDegPerSec", "Camera", 60.0f);
+         slowScale = Settings.GetValueFloat("SlowMotionScale", "Camera", 0.15f);
+         orbitRadius = Settings.GetValueFloat("OrbitRadius", "Camera", 1.9f);
+         orbitHeight = Settings.GetValueFloat("OrbitHeight", "Camera", 0.5f);
+         orbitSpeedDeg = Settings.GetValueFloat("OrbitSpeedDegPerSec", "Camera", 40.0f);
          invincible = Settings.GetValueBool("Invincible", "Player", true);
-         effectMs = Settings.GetValueInteger("EffectMs", "Effect", 1800);
+         effectMs = Settings.GetValueInteger("EffectMs", "Effect", 3000);
 
          // comma separated list; one is picked at random each time
          string list = Settings.GetValueString("Timecycles", "Effect", "bleachbypass");
@@ -196,7 +196,7 @@ namespace KillCam {
          victim = killed;
          lastVictimPos = victim.Position;
          cam = new Camera();
-         cam.FOV = 55.0f;
+         cam.FOV = 42.0f;
          finalShotChosen = false;
          hasFixedPos = false;
          int now = Environment.TickCount;
@@ -290,14 +290,14 @@ namespace KillCam {
          switch (shot) {
             case Shot.LowFront:
                // static, close to the ground, looking up at the victim
-               if (!hasFixedPos) { fixedPos = Offset(lastVictimPos, angle, 2.6f, -0.4f); hasFixedPos = true; }
+               if (!hasFixedPos) { fixedPos = Offset(lastVictimPos, angle, 1.6f, -0.3f); hasFixedPos = true; }
                pos = fixedPos;
                target = victimHead;
                break;
             case Shot.HighCrane:
                // slowly rising shot from above
                float rise = (Environment.TickCount - shotStartTick) / 1000.0f;
-               pos = Offset(lastVictimPos, angle, 3.5f, 3.5f + rise * 1.2f);
+               pos = Offset(lastVictimPos, angle, 2.2f, 2.0f + rise * 0.5f);
                target = victimHead;
                break;
             case Shot.OverShoulder:
@@ -305,7 +305,7 @@ namespace KillCam {
                float dx = lastVictimPos.X - pp.X;
                float dy = lastVictimPos.Y - pp.Y;
                float back = (float)Math.Atan2(dy, dx) + (float)Math.PI;
-               pos = Offset(pp, back, 2.2f, 1.2f);
+               pos = Offset(pp, back, 1.3f, 0.8f);
                target = victimHead;
                break;
             case Shot.PlayerOrbit:
@@ -314,7 +314,7 @@ namespace KillCam {
                break;
             case Shot.PlayerFront:
                // static close-up of the player
-               if (!hasFixedPos) { fixedPos = Offset(pp, angle, 2.0f, 0.5f); hasFixedPos = true; }
+               if (!hasFixedPos) { fixedPos = Offset(pp, angle, 1.4f, 0.4f); hasFixedPos = true; }
                pos = fixedPos;
                target = playerHead;
                break;
