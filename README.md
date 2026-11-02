@@ -32,8 +32,11 @@ Not compiled or tested in-game.
 - `BustedCam=true` enables it for arrests.
 - `ForceAim` is now off by default (it locks movement/shooting and can jitter the camera).
 
-## Last stand (replaces the slow-motion respawn hold)
-When a hit leaves the player at or below `LastStandHealth` (default 15), the player is made invincible and ragdolled, so the death cam plays with no dependence on the game's respawn timing. After `HoldMs` or Jump, the player really dies (normal wasted screen). Hits that kill outright still use the old behaviour.
+## Busted
+The busted cam alternates wide and two-shot framings of the arresting ped and the player.
+
+## Ini
+If `KillCam.ini` is deleted during play it is recreated automatically.
 
 ## More shots
 Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face and wide). They also appear mid-sequence in normal kill cams. Victim/scene: ground close-up, handheld close, flyby, two-shot.

@@ -84,12 +84,6 @@ namespace KillCam {
       private bool deathCam = true;
       private int deathChancePercent = 100;
       private bool deathMode = false;
-      private bool lastStand = true;
-      private int lastStandHealth = 15;
-      private float lastStandTimeScale = 0.25f;
-      private bool lastStandArmed = true;
-      private bool fakeDeath = false;
-      private int lastRagdollTick = 0;
       private bool bustedMode = false;
       private Vector3 deathStartPos;
       private bool deathHandled = false;
@@ -163,6 +157,14 @@ namespace KillCam {
          if (now - lastIniCheckTick < 1000) return;
          lastIniCheckTick = now;
          try {
+            if (!File.Exists(Settings.Filename)) {
+               WriteDefaultIni();
+               Settings.Load();
+               lastIniWrite = File.GetLastWriteTime(Settings.Filename);
+               ReadSettings();
+               Game.Console.Print("KillCam: settings file recreated");
+               return;
+            }
             DateTime w = File.GetLastWriteTime(Settings.Filename);
             if (w != lastIniWrite) {
                lastIniWrite = w;
@@ -234,13 +236,6 @@ namespace KillCam {
             "// Reverse logic: when an enemy kills the player, play the cam on the player's body",
             "DeathCam=true",
             "DeathCamChancePercent=100",
-            "// Last stand (recommended): when a hit leaves the player at or below LastStandHealth, the player is made",
-            "// invincible and ragdolled so the death cam can play with no respawn problems. After HoldMs, or when",
-            "// Jump is pressed, the player then really dies. A hit that kills outright still uses the old behaviour",
-            "LastStand=true",
-            "LastStandHealth=15",
-            "// Game speed during the last stand cam (0.05 - 1.0)",
-            "LastStandTimeScale=0.25",
             "// Also play the cam when the player is busted (arrested). The nearest ped is used as the arresting officer",
             "BustedCam=true",
             "// How long (ms) the death/busted cam is held before the game is allowed to respawn you. Jump skips it",
@@ -305,11 +300,6 @@ namespace KillCam {
          lockPlayer = Settings.GetValueBool("LockPlayerControl", "Player", false);
          deathCam = Settings.GetValueBool("DeathCam", "Death", true);
          bustedCam = Settings.GetValueBool("BustedCam", "Death", true);
-         lastStand = Settings.GetValueBool("LastStand", "Death", true);
-         lastStandHealth = Settings.GetValueInteger("LastStandHealth", "Death", 15);
-         lastStandTimeScale = Settings.GetValueFloat("LastStandTimeScale", "Death", 0.25f);
-         if (lastStandTimeScale < 0.05f) lastStandTimeScale = 0.05f;
-         if (lastStandTimeScale > 1.0f) lastStandTimeScale = 1.0f;
          deathHoldMs = Settings.GetValueInteger("HoldMs", "Death", 30000);
          deathTimeScale = Settings.GetValueFloat("HoldTimeScale", "Death", 0.05f);
          holdFade = Settings.GetValueBool("KeepScreenVisible", "Death", true);
@@ -399,15 +389,6 @@ namespace KillCam {
          }
          deathHandled = false;
 
-         if (deathCam && lastStand) {
-            int hp = player.Health;
-            if (hp > lastStandHealth + 15) lastStandArmed = true;
-            if (lastStandArmed && hp > 0 && hp <= lastStandHealth) {
-               lastStandArmed = false;
-               if (TryStartLastStand(player)) return;
-            }
-         }
-
          if (bustedCam) {
             bool arrested = false;
             try { arrested = GTA.Native.Function.Call<bool>("IS_PLAYER_BEING_ARRESTED"); } catch (Exception) { }
@@ -483,30 +464,6 @@ namespace KillCam {
          BeginCamera(player, killer, true);
       }
 
-      private bool TryStartLastStand(Ped player) {
-         if (rng.Next(100) >= deathChancePercent) return false;
-         Ped killer = null;
-         float best = 100000.0f;
-         for (int pass = 0; pass < 2 && killer == null; pass++) {
-            for (int i = 0; i < tracked.Count; i++) {
-               Ped p = tracked[i].Ped;
-               if (p == null || !p.Exists() || p.isDead || p.Equals(player)) continue;
-               if (pass == 0 ? !player.HasBeenDamagedBy(p) : !p.isInCombat) continue;
-               float d = p.Position.DistanceTo(player.Position);
-               if (d < best) { best = d; killer = p; }
-            }
-         }
-         if (killer == null) return false;
-         BeginCamera(player, killer, true, false);
-         if (state != CamState.Playing) return false;
-         fakeDeath = true;
-         player.Invincible = true;
-         player.ForceRagdoll(deathHoldMs, false);
-         lastRagdollTick = Environment.TickCount;
-         Game.TimeScale = lastStandTimeScale;
-         return true;
-      }
-
       private void TryStartBustedCamera(Ped player) {
          if (rng.Next(100) >= deathChancePercent) return;
          Ped cop = null;
@@ -536,7 +493,6 @@ namespace KillCam {
 
       private void BeginCamera(Ped focus, Ped actingPed, bool death, bool busted) {
          bustedMode = busted;
-         fakeDeath = false;
          deathStartPos = focus.Position;
          interior = false;
          try {
@@ -667,6 +623,7 @@ namespace KillCam {
          } else if (!first) {
             next = RandomVictimShot(shot);
          }
+         if (bustedMode) next = RandomBustedShot(first ? Shot.OrbitVictim : shot);
 
          shot = next;
          shotStartTick = Environment.TickCount;
@@ -683,6 +640,14 @@ namespace KillCam {
          // random starting angle for variety
          angle += (float)(rng.NextDouble() * Math.PI - Math.PI / 2.0);
          Debug("shot " + shot.ToString());
+      }
+
+      // busted: always frame the arresting ped and the player together
+      private Shot RandomBustedShot(Shot previous) {
+         Shot[] options = new Shot[] { Shot.ActorWide, Shot.TwoShot };
+         Shot pick = options[rng.Next(options.Length)];
+         if (pick == previous) pick = options[(Array.IndexOf(options, pick) + 1) % options.Length];
+         return pick;
       }
 
       // player-centric shots (only used when the actor is the player, never the killer)
@@ -947,14 +912,6 @@ namespace KillCam {
          bool over = now - startTick >= activeDurationMs;
          if (deathMode) {
             if (victim == null || !victim.Exists()) over = true;
-            else if (fakeDeath) {
-               if (victim.isDead) {
-                  fakeDeath = false;
-               } else if (now - lastRagdollTick > 2000) {
-                  lastRagdollTick = now;
-                  if (!victim.isRagdoll) victim.ForceRagdoll(deathHoldMs, false);
-               }
-            }
             else if (!bustedMode && !victim.isDead) over = true;
             else if (bustedMode && victim.Position.DistanceTo(deathStartPos) > 25.0f) over = true;
             if (!over && holdFade) KeepVisible();
@@ -992,16 +949,6 @@ namespace KillCam {
       }
 
       private void StopCamera() {
-         if (fakeDeath) {
-            fakeDeath = false;
-            Game.TimeScale = 1.0f;
-            try {
-               if (victim != null && victim.Exists()) {
-                  victim.Invincible = false;
-                  victim.Die();
-               }
-            } catch (Exception) { }
-         }
          if (faceLightObj != null) {
             try { faceLightObj.Enabled = false; } catch (Exception) { }
          }
