@@ -92,6 +92,18 @@ namespace KillCam {
       private int deathChancePercent = 100;
       private bool deathMode = false;
       private bool bustedMode = false;
+      private bool shakeOn = true;
+      private float shakeAmount = 1.0f;
+      private bool freezeOn = true;
+      private int freezeMs = 200;
+      private float freezeScale = 0.02f;
+      private int rampChance = 35;
+      private int rampMs = 1500;
+      private float rampFrom = 0.6f;
+      private float baseScale = 0.1f;
+      private bool rampActive = false;
+      private bool freezeActive = false;
+      private float lastSetScale = -1.0f;
       private bool madeInvincible = false;
       private bool timeScaleSet = false;
       private int lastErrorTick = -100000;
@@ -287,6 +299,20 @@ namespace KillCam {
             "[Effect]",
             "// How long the screen effect stays on (ms)",
             "EffectMs=7000",
+            "// Subtle camera shake: a faint constant tremor plus a short kick when the cam starts",
+            "CameraShake=true",
+            "// Shake strength multiplier (0 - 4). 1 = subtle",
+            "ShakeAmount=1.0",
+            "// Impact freeze: the game almost stops for a moment on the kill before the slow-motion starts (kill cam only)",
+            "ImpactFreeze=true",
+            "ImpactFreezeMs=200",
+            "// Game speed during the freeze (0.01 - 1.0)",
+            "ImpactFreezeScale=0.02",
+            "// Chance (0-100) that the slow-motion eases in: starts near normal speed and drops to full slow-motion",
+            "SlowRampChancePercent=35",
+            "SlowRampMs=1500",
+            "// Starting game speed of the ramp (0.1 - 1.0)",
+            "SlowRampFrom=0.6",
             "// Comma separated list; one is picked at random each time. Available names and what they look like:",
             "//   Steel      cool, desaturated blue-steel grade with strong contrast (moody, thriller look)",
             "//   Cinema     high-contrast filmic grade, slightly teal shadows and warm highlights",
@@ -356,6 +382,20 @@ namespace KillCam {
          if (interiorScale < 0.2f) interiorScale = 0.2f;
          if (interiorScale > 1.0f) interiorScale = 1.0f;
          effectMs = Settings.GetValueInteger("EffectMs", "Effect", 7000);
+         shakeOn = Settings.GetValueBool("CameraShake", "Effect", true);
+         shakeAmount = Settings.GetValueFloat("ShakeAmount", "Effect", 1.0f);
+         if (shakeAmount < 0.0f) shakeAmount = 0.0f;
+         if (shakeAmount > 4.0f) shakeAmount = 4.0f;
+         freezeOn = Settings.GetValueBool("ImpactFreeze", "Effect", true);
+         freezeMs = Settings.GetValueInteger("ImpactFreezeMs", "Effect", 200);
+         freezeScale = Settings.GetValueFloat("ImpactFreezeScale", "Effect", 0.02f);
+         if (freezeScale < 0.01f) freezeScale = 0.01f;
+         if (freezeScale > 1.0f) freezeScale = 1.0f;
+         rampChance = Settings.GetValueInteger("SlowRampChancePercent", "Effect", 35);
+         rampMs = Settings.GetValueInteger("SlowRampMs", "Effect", 1500);
+         rampFrom = Settings.GetValueFloat("SlowRampFrom", "Effect", 0.6f);
+         if (rampFrom < 0.1f) rampFrom = 0.1f;
+         if (rampFrom > 1.0f) rampFrom = 1.0f;
 
          // comma separated list; one is picked at random each time
          string list = Settings.GetValueString("Timecycles", "Effect", "Steel,Cinema,Eclipse");
@@ -587,7 +627,12 @@ namespace KillCam {
          ChooseShot(true);
          cam.Activate();
 
-         Game.TimeScale = slowNow;
+         baseScale = slowNow;
+         freezeActive = !death && freezeOn && freezeMs > 0;
+         rampActive = !death && rampChance > 0 && rampMs > 0 && rng.Next(100) < rampChance;
+         lastSetScale = -1.0f;
+         startTickRamp = 0;
+         ApplyTimeScale(now);
          timeScaleSet = true;
          if (!death) {
             Ped player = actor;
@@ -609,6 +654,34 @@ namespace KillCam {
          this.Interval = 0;
          Debug(death ? "started (death cam)" : "started");
       }
+
+      private void SetScale(float v) {
+         if (Math.Abs(v - lastSetScale) < 0.004f) return;
+         lastSetScale = v;
+         Game.TimeScale = v;
+      }
+
+      // Time scale over the cam's real-time clock: optional impact freeze, then either a flat
+      // slow-motion or an ease-in from near-normal speed down to it.
+      private void ApplyTimeScale(int now) {
+         int el = now - startTick;
+         if (freezeActive) {
+            if (el < freezeMs) { SetScale(freezeScale); return; }
+            freezeActive = false;
+            if (rampActive) startTickRamp = now;
+         }
+         if (rampActive) {
+            if (startTickRamp == 0) startTickRamp = startTick;
+            float t = (now - startTickRamp) / (float)rampMs;
+            if (t >= 1.0f) { rampActive = false; SetScale(baseScale); return; }
+            float e = t * t * (3.0f - 2.0f * t);
+            SetScale(rampFrom + (baseScale - rampFrom) * e);
+            return;
+         }
+         SetScale(baseScale);
+      }
+
+      private int startTickRamp = 0;
 
       // works out weapon class, kill distance and vehicle use for the shot weighting
       private void ReadSituation(bool death) {
@@ -1125,6 +1198,18 @@ namespace KillCam {
          } else if (faceLightObj != null && faceLightObj.Enabled) {
             faceLightObj.Enabled = false;
          }
+         if (shakeOn && shakeAmount > 0.0f) {
+            // faint tremor, plus a short decaying kick right after the cam starts
+            float rt = Environment.TickCount / 1000.0f;
+            float since = (Environment.TickCount - startTick) / 1000.0f;
+            float amp = 0.004f;
+            if (since < 0.6f) amp += 0.03f * (1.0f - since / 0.6f);
+            amp *= shakeAmount;
+            pos = new Vector3(
+               pos.X + (float)(Math.Sin(rt * 23.0) + Math.Sin(rt * 37.0)) * 0.5f * amp,
+               pos.Y + (float)(Math.Sin(rt * 29.0) + Math.Sin(rt * 41.0)) * 0.5f * amp,
+               pos.Z + (float)(Math.Sin(rt * 31.0) + Math.Sin(rt * 17.0)) * 0.5f * amp);
+         }
          cam.Position = pos;
          cam.LookAt(target);
       }
@@ -1156,6 +1241,7 @@ namespace KillCam {
          }
 
          if (effectOn && now - startTick >= effectActiveMs) StopEffect();
+         if (!deathMode) ApplyTimeScale(now);
 
          if (now - shotStartTick >= activeShotMs) {
             ChooseShot(false);

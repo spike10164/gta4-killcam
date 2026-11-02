@@ -49,3 +49,8 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 - `SituationShots=true`: shots are weighted by kill distance (far = telephoto/bullet-follow/flyby, close = ground/handheld/dolly), weapon, and vehicles (car-side arc and low-front shots when you're driving; wider radii when anyone is in a vehicle).
 - `WeaponPacing=true`: sniper/shotgun/explosive kills run longer and slower, melee shorter and faster.
 - New styles: Telephoto, BulletFollow, PullBack, WhipPan, CrashZoom, CarSide, CarLowFront.
+
+## Subtle effects (all in `[Effect]`)
+- `CameraShake` / `ShakeAmount`: faint tremor plus a short kick at the start. Cuts stay hard, with no camera blending.
+- `ImpactFreeze`: brief near-stop on the kill before slow-motion (kill cam only).
+- `SlowRampChancePercent`: sometimes the slow-motion eases in from near-normal speed instead of dropping at once.
