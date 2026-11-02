@@ -54,3 +54,9 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 - `CameraShake` / `ShakeAmount`: faint tremor plus a short kick at the start. Cuts stay hard, with no camera blending.
 - `ImpactFreeze`: brief near-stop on the kill before slow-motion (kill cam only).
 - `SlowRampChancePercent`: sometimes the slow-motion eases in from near-normal speed instead of dropping at once.
+
+## Pacing and intensity
+- `IntensityTiers`: last enemy, a 3+ kill streak, or a kill at low health each add a tier (longer, slower, more shake).
+- `SpecialCamChancePercent`: rare longer cam with one slow full orbit.
+- `FinalHoldMs`: holds the last shot of kill cams.
+- `MatchKillDirection`: kills from behind start on the victim's face side.
