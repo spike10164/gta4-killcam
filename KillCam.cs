@@ -748,15 +748,6 @@ namespace KillCam {
                pos = Offset(hd, faceAngle, faceDist, 0.05f - 0.15f * t);
                target = hd;
                cam.FOV = 44.0f - 8.0f * t;
-               if (faceLight) {
-                  // a soft light between the camera and the face, a little above it
-                  Vector3 lp = new Vector3(hd.X + (pos.X - hd.X) * 0.6f, hd.Y + (pos.Y - hd.Y) * 0.6f, hd.Z + 0.35f);
-                  if (faceLightObj == null) {
-                     faceLightObj = new Light(System.Drawing.Color.FromArgb(255, 235, 200), lightRange, lightIntensity);
-                  }
-                  faceLightObj.Position = lp;
-                  faceLightObj.Enabled = true;
-               }
                break;
             }
             case Shot.ActorWide:
@@ -898,7 +889,18 @@ namespace KillCam {
                target = victimHead;
                break;
          }
-         if (shot != Shot.ActorFace && faceLightObj != null && faceLightObj.Enabled) faceLightObj.Enabled = false;
+         // every shot on the player gets the soft face light (not on the killer/officer in death or busted cams)
+         if (faceLight && IsActorShot() && !deathMode) {
+            Vector3 lh = ActorHead();
+            Vector3 lp = new Vector3(lh.X + (pos.X - lh.X) * 0.6f, lh.Y + (pos.Y - lh.Y) * 0.6f, lh.Z + 0.35f);
+            if (faceLightObj == null) {
+               faceLightObj = new Light(System.Drawing.Color.FromArgb(255, 235, 200), lightRange, lightIntensity);
+            }
+            faceLightObj.Position = lp;
+            faceLightObj.Enabled = true;
+         } else if (faceLightObj != null && faceLightObj.Enabled) {
+            faceLightObj.Enabled = false;
+         }
          cam.Position = pos;
          cam.LookAt(target);
       }
