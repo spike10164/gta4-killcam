@@ -172,6 +172,7 @@ namespace KillCam {
       private float interiorScale = 0.5f;
       private int lastIniCheckTick = 0;
       private DateTime lastIniWrite = DateTime.MinValue;
+      private static readonly float[] clearScales = new float[] { 1.0f, 0.75f, 0.55f };
 
       public KillCam() {
          LoadSettings();
@@ -396,6 +397,18 @@ namespace KillCam {
          rampFrom = Settings.GetValueFloat("SlowRampFrom", "Effect", 0.6f);
          if (rampFrom < 0.1f) rampFrom = 0.1f;
          if (rampFrom > 1.0f) rampFrom = 1.0f;
+         chancePercent = ClampPercent(chancePercent);
+         longRangeChance = ClampPercent(longRangeChance);
+         explosionChance = ClampPercent(explosionChance);
+         endOnPlayerPercent = ClampPercent(endOnPlayerPercent);
+         deathChancePercent = ClampPercent(deathChancePercent);
+         if (cooldownMs < 0) cooldownMs = 0;
+         if (durationMs < 300) durationMs = 300;
+         if (finalHoldMs < 0) finalHoldMs = 0;
+         if (guaranteeAfterMs < 0) guaranteeAfterMs = 0;
+         if (rampMs < 0) rampMs = 0;
+         if (longRangeDist < 0.0f) longRangeDist = 0.0f;
+         if (scanRadius < 5.0f) scanRadius = 5.0f;
 
          // comma separated list; one is picked at random each time
          string list = Settings.GetValueString("Timecycles", "Effect", "Steel,Cinema,Eclipse");
@@ -410,6 +423,12 @@ namespace KillCam {
          if (slowScale < 0.02f) slowScale = 0.02f;
          if (slowScale > 1.0f) slowScale = 1.0f;
          if (shotLengthMs < 300) shotLengthMs = 300;
+      }
+
+      private int ClampPercent(int v) {
+         if (v < 0) return 0;
+         if (v > 100) return 100;
+         return v;
       }
 
       private string errorText = "";
@@ -444,7 +463,10 @@ namespace KillCam {
 
       private void KillCam_Tick(object sender, EventArgs e) {
          try {
-            if (!enabled) return;
+            if (!enabled) {
+               if (state == CamState.Playing) StopCamera();
+               return;
+            }
             if (state == CamState.Playing) {
                UpdateCamera();
             } else {
@@ -659,7 +681,14 @@ namespace KillCam {
          ReadSituation();
 
          float slowNow = PlanTiming(death, busted);
-         if (!CreateCamera()) { Debug("camera could not be created, skipping"); return; }
+         if (!CreateCamera()) {
+            Debug("camera could not be created, skipping");
+            victim = null;
+            actor = null;
+            deathMode = false;
+            bustedMode = false;
+            return;
+         }
 
          int now = Environment.TickCount;
          startTick = now;
@@ -675,7 +704,7 @@ namespace KillCam {
          ApplyTimeScale(now);
          timeScaleSet = true;
          // the player cannot be hurt during a kill cam (reset in StopCamera; the API cannot read the old state)
-         if (!death && invincible) {
+         if (!death && invincible && actor != null && actor.Exists()) {
             actor.Invincible = true;
             madeInvincible = true;
          }
@@ -851,11 +880,10 @@ namespace KillCam {
          }
          int now = Environment.TickCount;
          if (!clearInit || now - clearEvalTick >= 250) {
-            float[] scales = new float[] { 1.0f, 0.75f, 0.55f };
             float target = 0.4f;
-            for (int i = 0; i < scales.Length; i++) {
-               Vector3 p = Offset(center, ang, radius * radiusMul * scales[i], height + (1.0f - scales[i]) * 2.5f);
-               if (!IsBlocked(p, center.Z)) { target = scales[i]; break; }
+            for (int i = 0; i < clearScales.Length; i++) {
+               Vector3 p = Offset(center, ang, radius * radiusMul * clearScales[i], height + (1.0f - clearScales[i]) * 2.5f);
+               if (!IsBlocked(p, center.Z)) { target = clearScales[i]; break; }
             }
             clearTarget = target;
             clearEvalTick = now;
@@ -873,8 +901,12 @@ namespace KillCam {
          string name = timecycles[rng.Next(timecycles.Length)];
          if (name.Length == 0) return;
          effectName = name;
-         GTA.Native.Function.Call("SET_TIMECYCLE_MODIFIER", name);
-         effectOn = true;
+         try {
+            GTA.Native.Function.Call("SET_TIMECYCLE_MODIFIER", name);
+            effectOn = true;
+         } catch (Exception) {
+            effectOn = false;
+         }
          Debug("effect " + name);
       }
 
@@ -882,7 +914,7 @@ namespace KillCam {
 
       private void StopEffect() {
          if (!effectOn) return;
-         GTA.Native.Function.Call("CLEAR_TIMECYCLE_MODIFIER");
+         try { GTA.Native.Function.Call("CLEAR_TIMECYCLE_MODIFIER"); } catch (Exception) { }
          effectOn = false;
       }
 
@@ -912,7 +944,9 @@ namespace KillCam {
          shot = next;
          shotStartTick = Environment.TickCount;
          // the game can drop the modifier on its own, so it is re-applied on every cut
-         if (effectOn && !first) GTA.Native.Function.Call("SET_TIMECYCLE_MODIFIER", effectName);
+         if (effectOn && !first) {
+            try { GTA.Native.Function.Call("SET_TIMECYCLE_MODIFIER", effectName); } catch (Exception) { }
+         }
          shotDir = (rng.Next(2) == 0) ? 1.0f : -1.0f;
          hasFixedPos = false;
          clearInit = false;
