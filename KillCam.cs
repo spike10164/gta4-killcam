@@ -419,6 +419,14 @@ namespace KillCam {
          } catch (Exception) { }
       }
 
+      // errors always go to the log file, even with Debug off
+      private void LogError(Exception ex) {
+         try {
+            File.AppendAllText(Path.ChangeExtension(Settings.Filename, ".log"),
+               DateTime.Now.ToString("HH:mm:ss.fff") + "  ERROR " + ex.ToString() + "\r\n");
+         } catch (Exception) { }
+      }
+
       private void Debug(string text) {
          if (!debug) return;
          Game.Console.Print("KillCam: " + text);
@@ -442,7 +450,10 @@ namespace KillCam {
                lastErrorTick = Environment.TickCount;
                Game.Console.Print("KillCam error: " + ex.Message);
             }
+            LogError(ex);
             StopCamera();
+            // hand the view back to the game even if the camera object was lost
+            try { GTA.Native.Function.Call("ACTIVATE_SCRIPTED_CAMS", 0, 0); } catch (Exception) { }
          }
       }
 
@@ -1386,6 +1397,12 @@ namespace KillCam {
       }
 
       private void StopCamera() {
+         // the camera goes first so a failure further down can never leave the view stuck
+         if (cam != null) {
+            try { cam.Deactivate(); } catch (Exception) { }
+            try { cam.Delete(); } catch (Exception) { }
+            cam = null;
+         }
          if (faceLightObj != null) {
             try { faceLightObj.Enabled = false; } catch (Exception) { }
          }
@@ -1406,13 +1423,6 @@ namespace KillCam {
          if (state == CamState.Playing && !deathMode && forceAim) {
             Ped p2 = Player.Character;
             if (p2 != null && p2.Exists()) p2.Task.ClearAll();
-         }
-         if (cam != null) {
-            try {
-               cam.Deactivate();
-               cam.Delete();
-            } catch (Exception) { }
-            cam = null;
          }
          if (state == CamState.Playing) {
             lastEndTick = Environment.TickCount;
