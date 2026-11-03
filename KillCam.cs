@@ -24,6 +24,10 @@ namespace KillCam {
          ActorGunSide,
          ActorRearQuarter,
          ActorLongQuarter,
+         ActorDutchQuarter,
+         ActorSweepQuarter,
+         ActorLowSide,
+         ActorRiseQuarter,
          LowFront,
          HighCrane,
          OverShoulder,
@@ -301,7 +305,7 @@ namespace KillCam {
             "// Names: OrbitVictim, LowFront, HighCrane, OverShoulder, DollyIn, SideTrack, TopDown, LowRise, DutchOrbit, ZoomPull,",
             "// Telephoto, BulletFollow, PullBack, WhipPan, CrashZoom, GroundClose, HandheldClose, Flyby, TwoShot, ActorFace,",
             "// ActorWide, ActorOrbit, ActorLowAngle, ActorDolly, ActorProfile, ActorCrane, ActorThreeQuarter, ActorCloseQuarter,",
-            "// ActorHeroLow, ActorGunSide, ActorRearQuarter, ActorLongQuarter, CarSide, CarLowFront",
+            "// ActorHeroLow, ActorGunSide, ActorRearQuarter, ActorLongQuarter, ActorDutchQuarter, ActorSweepQuarter, ActorLowSide, ActorRiseQuarter, CarSide, CarLowFront",
             "DisabledShots=",
             "// Choose shots by the situation: kill distance and whether anyone is in a vehicle",
             "SituationShots=true",
@@ -1115,9 +1119,9 @@ namespace KillCam {
       private int ShotFamily(Shot sh) {
          switch (sh) {
             case Shot.OrbitVictim: case Shot.DutchOrbit: case Shot.ActorOrbit: return 1;
-            case Shot.HighCrane: case Shot.ActorCrane: case Shot.TopDown: return 2;
-            case Shot.LowFront: case Shot.LowRise: case Shot.GroundClose: case Shot.ActorLowAngle: case Shot.ActorHeroLow: case Shot.CarLowFront: return 3;
-            case Shot.DollyIn: case Shot.ActorDolly: case Shot.PullBack: case Shot.ZoomPull: case Shot.CrashZoom: return 4;
+            case Shot.HighCrane: case Shot.ActorCrane: case Shot.TopDown: case Shot.ActorRiseQuarter: return 2;
+            case Shot.LowFront: case Shot.LowRise: case Shot.GroundClose: case Shot.ActorLowAngle: case Shot.ActorHeroLow: case Shot.CarLowFront: case Shot.ActorLowSide: return 3;
+            case Shot.DollyIn: case Shot.ActorDolly: case Shot.ActorSweepQuarter: case Shot.PullBack: case Shot.ZoomPull: case Shot.CrashZoom: return 4;
             case Shot.Telephoto: case Shot.ActorLongQuarter: case Shot.BulletFollow: case Shot.Flyby: case Shot.SideTrack: return 5;
             case Shot.HandheldClose: case Shot.WhipPan: return 6;
             case Shot.TwoShot: case Shot.OverShoulder: return 7;
@@ -1166,12 +1170,14 @@ namespace KillCam {
             options = new Shot[] { Shot.ActorWide, Shot.ActorWide, Shot.ActorOrbit, Shot.ActorCrane, Shot.CarSide, Shot.CarSide, Shot.CarSide, Shot.CarLowFront, Shot.CarLowFront };
          } else if (interior) {
             options = new Shot[] { Shot.ActorFace, Shot.ActorProfile, Shot.ActorLowAngle, Shot.ActorDolly, Shot.ActorOrbit, Shot.ActorThreeQuarter, Shot.ActorThreeQuarter,
-               Shot.ActorCloseQuarter, Shot.ActorGunSide, Shot.ActorRearQuarter };
+               Shot.ActorCloseQuarter, Shot.ActorGunSide, Shot.ActorRearQuarter, Shot.ActorDutchQuarter, Shot.ActorLowSide };
          } else {
             options = new Shot[] { Shot.ActorFace, Shot.ActorWide, Shot.ActorProfile, Shot.ActorLowAngle,
                Shot.ActorDolly, Shot.ActorOrbit, Shot.ActorCrane, Shot.ActorThreeQuarter, Shot.ActorThreeQuarter, Shot.ActorThreeQuarter,
                Shot.ActorCloseQuarter, Shot.ActorCloseQuarter, Shot.ActorHeroLow, Shot.ActorHeroLow, Shot.ActorGunSide,
-               Shot.ActorGunSide, Shot.ActorRearQuarter, Shot.ActorLongQuarter, Shot.ActorLongQuarter };
+               Shot.ActorGunSide, Shot.ActorRearQuarter, Shot.ActorLongQuarter, Shot.ActorLongQuarter,
+               Shot.ActorDutchQuarter, Shot.ActorDutchQuarter, Shot.ActorSweepQuarter, Shot.ActorSweepQuarter, Shot.ActorLowSide, Shot.ActorLowSide,
+               Shot.ActorRiseQuarter, Shot.ActorRiseQuarter };
          }
          Shot pick = options[rng.Next(options.Length)];
          for (int tries = 0; tries < 8; tries++) {
@@ -1247,7 +1253,8 @@ namespace KillCam {
          return s == Shot.ActorFace || s == Shot.ActorWide || s == Shot.ActorOrbit || s == Shot.ActorLowAngle
             || s == Shot.ActorDolly || s == Shot.ActorProfile || s == Shot.ActorCrane || s == Shot.ActorThreeQuarter
             || s == Shot.ActorCloseQuarter || s == Shot.ActorHeroLow || s == Shot.ActorGunSide
-            || s == Shot.ActorRearQuarter || s == Shot.ActorLongQuarter
+            || s == Shot.ActorRearQuarter || s == Shot.ActorLongQuarter || s == Shot.ActorDutchQuarter
+            || s == Shot.ActorSweepQuarter || s == Shot.ActorLowSide || s == Shot.ActorRiseQuarter
             || s == Shot.CarSide || s == Shot.CarLowFront;
       }
 
@@ -1326,6 +1333,31 @@ namespace KillCam {
                ActorQuarter(shotDir * 0.75f, 7.0f - 1.2f * l3, -0.1f, 0.3f, 17.0f, out pos, out target);
                break;
             }
+            case Shot.ActorDutchQuarter: {
+               // tilted front three-quarter with a slow push in
+               float d3 = ShotT();
+               ActorQuarter(shotDir * 0.8f, 2.9f - 0.6f * d3, -0.15f, 0.15f, 34.0f, out pos, out target);
+               cam.Roll = shotDir * 9.0f;
+               break;
+            }
+            case Shot.ActorSweepQuarter: {
+               // sweeps from one front quarter across to the other at chest height
+               float w3 = ShotT();
+               ActorQuarter(shotDir * (1.0f - 1.7f * w3), 3.2f, -0.2f, 0.2f, 36.0f, out pos, out target);
+               break;
+            }
+            case Shot.ActorLowSide: {
+               // low, close profile with the camera looking slightly up, creeping forward
+               float s3 = ShotT();
+               ActorQuarter(shotDir * (1.5f - 0.3f * s3), 2.6f - 0.4f * s3, -0.9f, 0.35f, 32.0f, out pos, out target);
+               break;
+            }
+            case Shot.ActorRiseQuarter: {
+               // front three-quarter that rises gently from chest to just above head height
+               float u3 = ShotT();
+               ActorQuarter(shotDir * 0.65f, 3.3f - 0.5f * u3, -0.4f + 1.2f * u3, 0.1f + 0.3f * u3, 36.0f, out pos, out target);
+               break;
+            }
             case Shot.ActorRearQuarter: {
                // behind and beside the shooter at shoulder height, looking past them along their aim
                float r3 = ShotT();
@@ -1397,7 +1429,7 @@ namespace KillCam {
             }
             case Shot.ActorCrane: {
                float tc = ShotT();
-               pos = ClearPosition(pp, angle, 3.0f, 3.5f - 1.2f * tc);
+               pos = ClearPosition(pp, angle, 3.0f, 2.2f - 0.8f * tc);
                target = ActorHead();
                break;
             }
