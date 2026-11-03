@@ -18,6 +18,7 @@ namespace KillCam {
 
       private enum Shot {
          OrbitVictim,
+         DeathOverview,
          LowFront,
          HighCrane,
          OverShoulder,
@@ -632,7 +633,8 @@ namespace KillCam {
             }
             Debug("tier " + tier.ToString());
          }
-         if (death && !busted) activeShotMs = (int)(shotLengthMs * 0.7f);
+         // few, long, sweeping shots so the whole scene stays readable
+         if (death && !busted) activeShotMs = Math.Max(shotLengthMs * 3, 9000);
          if (busted) activeShotMs = Math.Max(shotLengthMs, deathHoldMs / bustedCuts);
          cam = new Camera();
          cam.FOV = 42.0f;
@@ -940,11 +942,10 @@ namespace KillCam {
             if (victimInCar && !interior) { W(Shot.Flyby, 2); W(Shot.HighCrane, 2); W(Shot.SideTrack, 2); }
          }
          if (deathMode && !bustedMode) {
-            // death cam: stay on the fallen player, the killer only appears in the odd wide shot
+            // death cam: high, wide, sweeping views of the fallen player and what is going on around them
             pool.Clear();
-            W(Shot.OrbitVictim, 3); W(Shot.LowFront, 3); W(Shot.DollyIn, 3); W(Shot.LowRise, 3);
-            W(Shot.GroundClose, 3); W(Shot.HandheldClose, 3); W(Shot.PullBack, 2); W(Shot.DutchOrbit, 2);
-            if (!interior) { W(Shot.HighCrane, 2); W(Shot.TopDown, 2); W(Shot.SideTrack, 1); }
+            W(Shot.DeathOverview, 6);
+            if (!interior) { W(Shot.HighCrane, 1); W(Shot.Flyby, 1); }
             if (!noActor) W(Shot.TwoShot, 1);
          }
          Shot pick = previous;
@@ -1202,6 +1203,14 @@ namespace KillCam {
                target = victimHead;
                break;
             }
+            case Shot.DeathOverview: {
+               // wide sweeping arc, rising slowly, far enough back to see the surroundings
+               float td2 = ShotT();
+               pos = ClearPosition(lastVictimPos, angle, 8.5f + 2.0f * td2, 4.5f + 2.5f * td2);
+               cam.FOV = 45.0f;
+               target = lastVictimPos;
+               break;
+            }
             case Shot.TopDown: {
                // overhead shot with a slow roll
                float tt = ShotT();
@@ -1313,7 +1322,7 @@ namespace KillCam {
          // orbit speed uses real time, so slow motion does not stall the camera
          float dt = (now - lastFrameTick) / 1000.0f;
          lastFrameTick = now;
-         if (shot == Shot.OrbitVictim || shot == Shot.HighCrane || shot == Shot.DutchOrbit || shot == Shot.ActorOrbit) {
+         if (shot == Shot.OrbitVictim || shot == Shot.HighCrane || shot == Shot.DutchOrbit || shot == Shot.ActorOrbit || shot == Shot.DeathOverview) {
             angle += shotDir * orbitSpeedDeg * dt * (float)Math.PI / 180.0f;
          }
          PositionCamera();

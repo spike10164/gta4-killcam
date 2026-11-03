@@ -7,7 +7,7 @@ Install: install ScriptHookDotNet, copy `KillCam.cs` to `<GTA IV>/scripts/`. `Ki
 - Rare: 20% chance, 45 s cooldown, and only on the **last enemy** (`LastEnemyOnly=true`; an enemy is any nearby ped still in combat or that you hurt).
 - Player is **invincible** during the cam (`Invincible=true`) and turned off afterwards (the API can't read the previous state).
 - Camera cuts every `ShotLengthMs` between random shots: orbit victim, low front, high crane, over-the-shoulder. The final shot is the player (orbit or close-up) with `EndOnPlayerPercent` chance.
-- A **timecycle** effect applies instantly and lasts as long as the camera does. If the camera hits geometry it cuts to another shot. The death cam stays on the fallen player with shorter, more frequent shots. `Timecycles` is a comma-separated list of modifier names (one picked at random); an unknown name may do nothing, so try others from the game's timecycle modifier files.
+- A **timecycle** effect applies instantly and lasts as long as the camera does. If the camera hits geometry it cuts to another shot. The death cam uses a few long, high, wide sweeping shots (`DeathOverview`) so the scene stays visible. `Timecycles` is a comma-separated list of modifier names (one picked at random); an unknown name may do nothing, so try others from the game's timecycle modifier files.
 
 - **Skip** with the Jump button only (Space on keyboard, the Jump button on a controller). Shift does not skip. Hold-release first: a key held when the cam starts doesn't skip.
 - The player aims at the victim during the cam. By default input is NOT locked: the aim task is re-issued every 300 ms, so moving may briefly fight it. `LockPlayerControl=true` freezes input instead.
