@@ -7,7 +7,7 @@ Install: install ScriptHookDotNet, copy `KillCam.cs` to `<GTA IV>/scripts/`. `Ki
 - Rare: 40% chance, 45 s cooldown, and only on the **last enemy** (`LastEnemyOnly=true`; an enemy is any nearby ped still in combat or that you hurt).
 - Player is **invincible** during a kill cam (`[Player] Invincible=true`, can be turned off) and turned off afterwards (the API can't read the previous state).
 - Camera cuts every `ShotLengthMs` between random shots: orbit victim, low front, high crane, over-the-shoulder. The final shot is the player (orbit or close-up) with `EndOnPlayerPercent` chance.
-- A **timecycle** effect applies instantly and lasts as long as the camera does. If the camera hits geometry it cuts to another shot. The death cam uses the normal shot set, reversed (the dead player is the subject, the killer the actor). `Timecycles` is a comma-separated list of modifier names (one picked at random); an unknown name may do nothing, so try others from the game's timecycle modifier files.
+- A **timecycle** effect starts with the first camera and clears at the end of the last one (never on the death or busted cam). `Timecycles` is used by day and `NightTimecycles` at night. If the camera hits geometry it cuts to another shot. The death cam uses the normal shot set, reversed (the dead player is the subject, the killer the actor). `Timecycles` is a comma-separated list of modifier names (one picked at random); an unknown name may do nothing, so try others from the game's timecycle modifier files.
 
 - **Skip** with the Jump button only (Space on keyboard, the Jump button on a controller). Shift does not skip. Hold-release first: a key held when the cam starts doesn't skip.
 - Bleed-outs are ignored: only a sudden health drop (`HitDropThreshold`) within `KillWindowMs` of death counts as a kill.
@@ -51,7 +51,10 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 - New styles: Telephoto, BulletFollow, PullBack, WhipPan, CrashZoom, CarSide, CarLowFront.
 
 ## Slow motion
-- `LastEnemyRamp`: on last-enemy kills the slow-motion eases in and back out. Other cams use a flat slow-motion.
+- `LastEnemyRamp`: on last-enemy kills the slow-motion eases in from near-normal speed. `SlowRampOut` eases it back to normal at the end of every kill cam.
+- `SequenceRules`: open on the victim, cut to the player, never repeat the same kind of move, alternate wide and tight. `EyelineMatching` keeps cuts on one side of the player-victim line. `PerShotLengths` makes fast shots short and slow ones long. `OpenerMs` starts last-enemy kills with a short tight shot. `DisabledShots` lists shots never to use.
+- `AdaptiveChance`: the chance rises in quiet play and as time passes since the last cam, and drops during long firefights.
+- The face light is full strength at night and scaled by `DayIntensityScale` by day.
 - Busted cams never apply a screen effect.
 
 ## Pacing and intensity

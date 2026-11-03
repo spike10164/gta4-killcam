@@ -79,7 +79,7 @@ namespace KillCam {
       private float orbitRadius = 1.9f;
       private float orbitHeight = 0.5f;
       private float orbitSpeedDeg = 4.0f; // degrees per real second
-      private string[] timecycles = new string[] { "Steel", "Cinema", "Eclipse" };
+      private string[] timecycles = new string[] { "Cinema", "Steel", "Bronze" };
       private bool debug = false;
 
       // a single health drop of at least this much counts as a hit; bleeding drops by 1-2 at a time
@@ -107,7 +107,21 @@ namespace KillCam {
       private float rampFrom = 0.6f;
       private bool lastEnemyRamp = true;
       private float baseScale = 0.05f;
-      private bool rampActive = false;
+      private bool rampIn = false;
+      private bool rampOutOn = true;
+      private bool sequenceRules = true;
+      private bool eyeline = true;
+      private bool perShotLengths = true;
+      private int openerMs = 900;
+      private int baseShotMs = 3500;
+      private int cutIndex = 0;
+      private float sideSign = 1.0f;
+      private bool adaptiveChance = true;
+      private List<int> recentKills = new List<int>();
+      private List<Shot> disabledShots = new List<Shot>();
+      private string[] nightTimecycles = new string[0];
+      private float dayLightScale = 0.6f;
+      private bool isNight = false;
       private float lastSetScale = -1.0f;
       private bool madeInvincible = false;
       private bool invincible = true;
@@ -247,6 +261,9 @@ namespace KillCam {
             "// If no kill cam has played on a ped for this long (ms), the next qualifying kill skips the chance roll",
             "// and is guaranteed to trigger one. 0 = off",
             "GuaranteeAfterMs=300000",
+            "// Chance adapts to the play: slightly higher in quiet moments and as time passes since the last cam,",
+            "// lower during long firefights",
+            "AdaptiveChance=true",
             "// Prints debug lines to the console (~)",
             "Debug=false",
             "// A single health drop at least this big counts as a hit (bleeding drops 1-2 at a time)",
@@ -271,6 +288,21 @@ namespace KillCam {
             "OrbitSpeedDegPerSec=4",
             "// Cameras are pulled in when a wall is detected closer than this (metres)",
             "WallClearance=1.3",
+            "// Shot sequencing: open on the victim, cut to the player, finish on the victim (or player); never repeat",
+            "// the same kind of move twice in a row and alternate wide and tight shots",
+            "SequenceRules=true",
+            "// Keeps every cut on the same side of the line between player and victim, so left/right never flips",
+            "EyelineMatching=true",
+            "// Fast shots (whip pan, crash zoom, handheld) are shorter and slow ones (cranes, long lens) are longer than ShotLengthMs",
+            "PerShotLengths=true",
+            "// On a last-enemy kill the first shot is a short, tight shot on the victim lasting this many ms. 0 = off",
+            "OpenerMs=900",
+            "// Shots never used, comma separated. Example: DisabledShots=TopDown,WhipPan",
+            "// Names: OrbitVictim, LowFront, HighCrane, OverShoulder, DollyIn, SideTrack, TopDown, LowRise, DutchOrbit, ZoomPull,",
+            "// Telephoto, BulletFollow, PullBack, WhipPan, CrashZoom, GroundClose, HandheldClose, Flyby, TwoShot, ActorFace,",
+            "// ActorWide, ActorOrbit, ActorLowAngle, ActorDolly, ActorProfile, ActorCrane, ActorThreeQuarter, ActorCloseQuarter,",
+            "// ActorHeroLow, ActorGunSide, ActorRearQuarter, ActorLongQuarter, CarSide, CarLowFront",
+            "DisabledShots=",
             "// Choose shots by the situation: kill distance and whether anyone is in a vehicle",
             "SituationShots=true",
             "// Stronger cams for bigger moments: killing the last enemy, or a kill while at low health.",
@@ -308,19 +340,24 @@ namespace KillCam {
             "HoldTimeScale=0.02",
             "",
             "[Light]",
-            "// Soft light on the player's face during the face close-up",
+            "// Soft light on the player's face during player shots. Full strength at night, scaled down by day",
             "Enabled=true",
+            "DayIntensityScale=0.6",
             "Range=4.5",
             "Intensity=50",
             "",
             "[Effect]",
-            "// The screen effect applies instantly and lasts exactly as long as the camera",
-            "// On a last-enemy kill the slow-motion eases in from near-normal speed and eases back out at the end",
+            "// The screen effect starts with the first camera and clears at the end of the last one.",
+            "// It is never used on the death or busted cam",
+            "// On a last-enemy kill the slow-motion eases in from near-normal speed",
             "LastEnemyRamp=true",
+            "// Every kill cam eases the game speed back to normal over the last SlowRampMs",
+            "SlowRampOut=true",
             "SlowRampMs=1500",
             "// Starting game speed of the ramp (0.1 - 1.0)",
             "SlowRampFrom=0.6",
-            "// Comma separated list; one is picked at random each time. Available names and what they look like:",
+            "// Comma separated lists; one is picked at random each time. Timecycles is used by day (and as the fallback),",
+            "// NightTimecycles at night (empty = same as Timecycles). Available names and what they look like:",
             "//   Steel      cool, desaturated blue-steel grade with strong contrast (moody, thriller look)",
             "//   Cinema     high-contrast filmic grade, slightly teal shadows and warm highlights",
             "//   Eclipse    dark and dramatic, deep red-purple shadows with a dim overall tone",
@@ -343,7 +380,8 @@ namespace KillCam {
             "//   colors     slightly boosted colour saturation",
             "//   death      the game's own wasted/death look: desaturated, dark edges",
             "//   injured    heavy desaturation and blur, like low health",
-            "Timecycles=Steel,Cinema,Eclipse"
+            "Timecycles=Cinema,Steel,Bronze",
+            "NightTimecycles=Steel,Eclipse,Noire"
          };
          File.WriteAllLines(Settings.Filename, lines);
       }
@@ -359,6 +397,17 @@ namespace KillCam {
          explosionChance = Settings.GetValueInteger("ExplosionChancePercent", "General", 80);
          scanRadius = Settings.GetValueFloat("ScanRadius", "General", 40.0f);
          debug = Settings.GetValueBool("Debug", "General", false);
+         adaptiveChance = Settings.GetValueBool("AdaptiveChance", "General", true);
+         sequenceRules = Settings.GetValueBool("SequenceRules", "Camera", true);
+         eyeline = Settings.GetValueBool("EyelineMatching", "Camera", true);
+         perShotLengths = Settings.GetValueBool("PerShotLengths", "Camera", true);
+         openerMs = Settings.GetValueInteger("OpenerMs", "Camera", 900);
+         if (openerMs < 0) openerMs = 0;
+         dayLightScale = Settings.GetValueFloat("DayIntensityScale", "Light", 0.6f);
+         if (dayLightScale < 0.0f) dayLightScale = 0.0f;
+         if (dayLightScale > 2.0f) dayLightScale = 2.0f;
+         rampOutOn = Settings.GetValueBool("SlowRampOut", "Effect", true);
+         ReadDisabledShots();
          durationMs = Settings.GetValueInteger("DurationMs", "Camera", 7000);
          shotLengthMs = Settings.GetValueInteger("ShotLengthMs", "Camera", 3500);
          endOnPlayerPercent = Settings.GetValueInteger("EndOnPlayerPercent", "Camera", 60);
@@ -411,18 +460,35 @@ namespace KillCam {
          if (scanRadius < 5.0f) scanRadius = 5.0f;
 
          // comma separated list; one is picked at random each time
-         string list = Settings.GetValueString("Timecycles", "Effect", "Steel,Cinema,Eclipse");
-         if (list != null && list.Trim().Length > 0) {
-            string[] parts = list.Split(',');
-            for (int i = 0; i < parts.Length; i++) parts[i] = parts[i].Trim();
-            timecycles = parts;
-         } else {
-            timecycles = new string[0];
-         }
+         timecycles = ParseList(Settings.GetValueString("Timecycles", "Effect", "Cinema,Steel,Bronze"));
+         nightTimecycles = ParseList(Settings.GetValueString("NightTimecycles", "Effect", "Steel,Eclipse,Noire"));
 
          if (slowScale < 0.02f) slowScale = 0.02f;
          if (slowScale > 1.0f) slowScale = 1.0f;
          if (shotLengthMs < 300) shotLengthMs = 300;
+      }
+
+      private string[] ParseList(string list) {
+         if (list == null || list.Trim().Length == 0) return new string[0];
+         string[] parts = list.Split(',');
+         List<string> result = new List<string>();
+         for (int i = 0; i < parts.Length; i++) {
+            string t = parts[i].Trim();
+            if (t.Length > 0) result.Add(t);
+         }
+         return result.ToArray();
+      }
+
+      private void ReadDisabledShots() {
+         disabledShots.Clear();
+         string[] names = ParseList(Settings.GetValueString("DisabledShots", "Camera", ""));
+         for (int i = 0; i < names.Length; i++) {
+            try {
+               disabledShots.Add((Shot)Enum.Parse(typeof(Shot), names[i], true));
+            } catch (Exception) {
+               Debug("unknown shot in DisabledShots: " + names[i]);
+            }
+         }
       }
 
       private int ClampPercent(int v) {
@@ -594,7 +660,26 @@ namespace KillCam {
          return guaranteeAfterMs > 0 && Environment.TickCount - lastKillCamTick >= guaranteeAfterMs;
       }
 
+      // quiet play and a long gap since the last cam raise the chance; a firefight lowers it
+      private int AdaptChance(int chance) {
+         if (!adaptiveChance) return chance;
+         int now = Environment.TickCount;
+         for (int i = recentKills.Count - 1; i >= 0; i--) {
+            if (now - recentKills[i] > 30000) recentKills.RemoveAt(i);
+         }
+         float c = chance;
+         if (recentKills.Count >= 4) c *= 0.6f;
+         else if (recentKills.Count <= 1) c += 10.0f;
+         if (guaranteeAfterMs > 0) {
+            float gap = (now - lastKillCamTick) / (float)guaranteeAfterMs;
+            if (gap > 1.0f) gap = 1.0f;
+            if (gap > 0.0f) c += 25.0f * gap;
+         }
+         return ClampPercent((int)c);
+      }
+
       private void TryStartCamera(Ped player, Ped killed) {
+         recentKills.Add(Environment.TickCount);
          bool otherAlive = IsOtherEnemyAlive(player, killed);
          bool forced = alwaysLastEnemy && !otherAlive;
          // an overdue cam is guaranteed on the next kill, even if other enemies are still alive
@@ -609,7 +694,7 @@ namespace KillCam {
             Debug("kill cam overdue, guaranteed");
          } else {
             // long-range and explosive kills get a higher chance (the highest applicable one wins)
-            int chance = chancePercent;
+            int chance = AdaptChance(chancePercent);
             bool isExplosive = false;
             float dist = 0.0f;
             try {
@@ -695,11 +780,15 @@ namespace KillCam {
          lastFrameTick = now;
          finalShotChosen = false;
          finalShotStarted = false;
+         cutIndex = 0;
+         sideSign = (rng.Next(2) == 0) ? 1.0f : -1.0f;
          ChooseShot(true);
          cam.Activate();
+         // the screen effect starts with the first camera; it is never used on the death or busted cam
+         if (!death) StartEffect();
 
          baseScale = slowNow;
-         rampActive = !death && lastEnemyRamp && lastEnemyKill && rampMs > 0;
+         rampIn = !death && lastEnemyRamp && lastEnemyKill && rampMs > 0;
          lastSetScale = -1.0f;
          ApplyTimeScale(now);
          timeScaleSet = true;
@@ -710,9 +799,6 @@ namespace KillCam {
          }
          // the skip key must be released once before it counts, so a held sprint does not skip at once
          skipArmed = !SkipPressed();
-         // no screen effect at all on the busted cam
-         if (!busted) StartEffect();
-
          state = CamState.Playing;
          this.Interval = 0;
          Debug(death ? "started (death cam)" : "started");
@@ -721,6 +807,7 @@ namespace KillCam {
       // Works out how long the cam runs, how long each shot lasts and how slow the game is.
       private float PlanTiming(bool death, bool busted) {
          tier = 0;
+         baseShotMs = shotLengthMs;
          activeShotMs = shotLengthMs;
          activeDurationMs = death ? deathHoldMs : durationMs;
          float slow = death ? deathTimeScale : slowScale;
@@ -739,7 +826,8 @@ namespace KillCam {
             if (slow < 0.02f) slow = 0.02f;
             Debug("tier " + tier.ToString());
          }
-         if (busted) activeShotMs = Math.Max(shotLengthMs, deathHoldMs / bustedCuts);
+         if (busted) baseShotMs = Math.Max(shotLengthMs, deathHoldMs / bustedCuts);
+         activeShotMs = baseShotMs;
          return slow;
       }
 
@@ -763,19 +851,19 @@ namespace KillCam {
          Game.TimeScale = v;
       }
 
-      // Time scale over the cam's real-time clock. Last-enemy kills ease in from near-normal speed
-      // and ease back out over the final SlowRampMs; every other cam is a flat slow-motion.
+      // Time scale over the cam's real-time clock. Last-enemy kills ease in from near-normal speed;
+      // every kill cam eases back out over the final SlowRampMs.
       private void ApplyTimeScale(int now) {
-         if (rampActive) {
-            float tin = (now - startTick) / (float)rampMs;
-            float remaining = activeDurationMs - (now - startTick);
-            float tout = 1.0f - remaining / (float)rampMs;
-            if (tin < 1.0f) {
+         if (rampMs > 0) {
+            float elapsed = now - startTick;
+            if (rampIn && elapsed < rampMs) {
+               float tin = elapsed / (float)rampMs;
                float e = tin * tin * (3.0f - 2.0f * tin);
                SetScale(rampFrom + (baseScale - rampFrom) * e);
                return;
             }
-            if (tout > 0.0f) {
+            float tout = 1.0f - (activeDurationMs - elapsed) / (float)rampMs;
+            if (rampOutOn && tout > 0.0f) {
                if (tout > 1.0f) tout = 1.0f;
                float e2 = tout * tout * (3.0f - 2.0f * tout);
                SetScale(baseScale + (1.0f - baseScale) * e2);
@@ -794,6 +882,11 @@ namespace KillCam {
          radiusMul = 1.0f;
          behindKill = false;
          frontKnown = false;
+         isNight = false;
+         try {
+            int hour = World.CurrentDayTime.Hours;
+            isNight = hour >= 20 || hour < 6;
+         } catch (Exception) { }
          if (!situationShots) return;
          try {
             if (actor != null && actor.Exists()) {
@@ -897,8 +990,9 @@ namespace KillCam {
       }
 
       private void StartEffect() {
-         if (timecycles.Length == 0) return;
-         string name = timecycles[rng.Next(timecycles.Length)];
+         string[] list = (isNight && nightTimecycles.Length > 0) ? nightTimecycles : timecycles;
+         if (list.Length == 0) return;
+         string name = list[rng.Next(list.Length)];
          if (name.Length == 0) return;
          effectName = name;
          try {
@@ -920,29 +1014,47 @@ namespace KillCam {
 
       // picks the next shot and sets up its starting camera state
       private void ChooseShot(bool first) {
-         Shot next = first ? PickVictimShot(Shot.OrbitVictim) : Shot.OrbitVictim;
-         bool isFinal = (Environment.TickCount - startTick) + activeShotMs >= activeDurationMs;
-         if (isFinal && !finalShotChosen) {
+         Shot next = Shot.OrbitVictim;
+         int elapsed = Environment.TickCount - startTick;
+         bool isFinal = elapsed + baseShotMs >= activeDurationMs;
+         bool opener = first && lastEnemyKill && !deathMode && openerMs > 0;
+         bool holdFinal = false;
+         if (opener) {
+            next = RandomOpenerShot();
+         } else if (first) {
+            next = PickVictimShot(Shot.OrbitVictim);
+         } else if (isFinal && !finalShotChosen) {
             finalShotChosen = true;
-            if (!deathMode && !bustedMode && finalHoldMs > 0) {
-               // hold the last shot a little longer so the moment lands
-               activeDurationMs += finalHoldMs;
-               activeShotMs += finalHoldMs;
-               finalShotStarted = true;
-            }
+            holdFinal = !deathMode && !bustedMode && finalHoldMs > 0;
             if (!deathMode && rng.Next(100) < endOnPlayerPercent) {
                // in a death cam the actor is the killer, so never push in on their face
-               next = RandomActorShot();
+               next = RandomActorShot(shot);
             } else {
                next = RandomVictimShot(shot);
             }
-         } else if (!first) {
+         } else {
             next = RandomVictimShot(shot);
          }
          if (bustedMode) next = RandomBustedShot(first ? Shot.OrbitVictim : shot);
 
+         // each shot gets its own length: fast moves are short, slow moves are long
+         activeShotMs = baseShotMs;
+         if (opener) {
+            activeShotMs = Math.Max(300, openerMs);
+         } else if (perShotLengths && !bustedMode) {
+            activeShotMs = Math.Max(300, (int)(baseShotMs * ShotLengthFactor(next)));
+         }
+         if (holdFinal) {
+            // hold the last shot a little longer so the moment lands
+            activeDurationMs += finalHoldMs;
+            finalShotStarted = true;
+            int remain = activeDurationMs - elapsed;
+            if (activeShotMs < remain) activeShotMs = remain;
+         }
+
          shot = next;
          shotStartTick = Environment.TickCount;
+         cutIndex++;
          // the game can drop the modifier on its own, so it is re-applied on every cut
          if (effectOn && !first) {
             try { GTA.Native.Function.Call("SET_TIMECYCLE_MODIFIER", effectName); } catch (Exception) { }
@@ -960,11 +1072,82 @@ namespace KillCam {
          angle = (float)Math.Atan2(from.Y - target.Y, from.X - target.X);
          // random starting angle for variety
          angle += (float)(rng.NextDouble() * Math.PI - Math.PI / 2.0);
+         // eyeline: every cut stays on the same side of the line between the two characters
+         float lx = lastVictimPos.X - pp.X, ly = lastVictimPos.Y - pp.Y;
+         if (eyeline && !noActor && lx * lx + ly * ly > 1.0f) {
+            float lineAng = (float)Math.Atan2(ly, lx);
+            angle = lineAng + sideSign * (float)(0.5 + rng.NextDouble() * 2.1);
+         }
          // a kill from behind: start on the victim's face side so the reaction is visible
          if (matchKill && behindKill && frontKnown && !IsActorShot() && !deathMode) {
             angle = frontAngle + (float)(rng.NextDouble() * 1.2 - 0.6);
          }
          Debug("shot " + shot.ToString());
+      }
+
+      private Shot RandomOpenerShot() {
+         Shot[] options = new Shot[] { Shot.HandheldClose, Shot.GroundClose, Shot.CrashZoom, Shot.DollyIn, Shot.LowFront };
+         for (int i = 0; i < 6; i++) {
+            Shot pick = options[rng.Next(options.Length)];
+            if (!IsDisabled(pick)) return pick;
+         }
+         return Shot.OrbitVictim;
+      }
+
+      private bool IsDisabled(Shot sh) {
+         return disabledShots.Count > 0 && disabledShots.Contains(sh);
+      }
+
+      // how long a shot runs compared with the normal shot length
+      private float ShotLengthFactor(Shot sh) {
+         switch (sh) {
+            case Shot.WhipPan: case Shot.CrashZoom: case Shot.HandheldClose: case Shot.BulletFollow:
+               return 0.5f;
+            case Shot.ActorLongQuarter: case Shot.HighCrane: case Shot.ActorCrane: case Shot.Flyby: case Shot.SideTrack:
+            case Shot.ZoomPull: case Shot.PullBack: case Shot.Telephoto: case Shot.TopDown:
+               return 1.3f;
+            default:
+               return 1.0f;
+         }
+      }
+
+      // camera-move family: the same family is never used twice in a row
+      private int ShotFamily(Shot sh) {
+         switch (sh) {
+            case Shot.OrbitVictim: case Shot.DutchOrbit: case Shot.ActorOrbit: return 1;
+            case Shot.HighCrane: case Shot.ActorCrane: case Shot.TopDown: return 2;
+            case Shot.LowFront: case Shot.LowRise: case Shot.GroundClose: case Shot.ActorLowAngle: case Shot.ActorHeroLow: case Shot.CarLowFront: return 3;
+            case Shot.DollyIn: case Shot.ActorDolly: case Shot.PullBack: case Shot.ZoomPull: case Shot.CrashZoom: return 4;
+            case Shot.Telephoto: case Shot.ActorLongQuarter: case Shot.BulletFollow: case Shot.Flyby: case Shot.SideTrack: return 5;
+            case Shot.HandheldClose: case Shot.WhipPan: return 6;
+            case Shot.TwoShot: case Shot.OverShoulder: return 7;
+            default: return 8;
+         }
+      }
+
+      // 0 = tight, 1 = medium, 2 = wide
+      private int ShotSize(Shot sh) {
+         switch (sh) {
+            case Shot.HandheldClose: case Shot.GroundClose: case Shot.CrashZoom: case Shot.DollyIn: case Shot.ActorFace:
+            case Shot.ActorCloseQuarter: case Shot.ActorProfile: case Shot.OverShoulder: case Shot.LowRise: case Shot.ActorGunSide:
+               return 0;
+            case Shot.HighCrane: case Shot.TopDown: case Shot.Flyby: case Shot.Telephoto: case Shot.ZoomPull: case Shot.PullBack:
+            case Shot.ActorWide: case Shot.ActorCrane: case Shot.ActorLongQuarter: case Shot.SideTrack: case Shot.CarSide:
+               return 2;
+            default:
+               return 1;
+         }
+      }
+
+      // true when a candidate breaks the sequencing rules after the previous shot
+      private bool BreaksSequence(Shot candidate, Shot previous, int attempt) {
+         if (candidate == previous) return true;
+         if (!sequenceRules) return false;
+         if (ShotFamily(candidate) == ShotFamily(previous)) return true;
+         // alternate wide and tight while there are tries left
+         int ps = ShotSize(previous), cs = ShotSize(candidate);
+         if (attempt < 5 && ps != 1 && cs == ps) return true;
+         return false;
       }
 
       // busted: always frame the arresting ped and the player together
@@ -976,7 +1159,7 @@ namespace KillCam {
       }
 
       // player-centric shots (only used when the actor is the player, never the killer)
-      private Shot RandomActorShot() {
+      private Shot RandomActorShot(Shot previous) {
          Shot[] options;
          if (actorInCar) {
             // the windscreen and car body make face and profile shots useless
@@ -990,14 +1173,23 @@ namespace KillCam {
                Shot.ActorCloseQuarter, Shot.ActorCloseQuarter, Shot.ActorHeroLow, Shot.ActorHeroLow, Shot.ActorGunSide,
                Shot.ActorGunSide, Shot.ActorRearQuarter, Shot.ActorLongQuarter, Shot.ActorLongQuarter };
          }
-         return options[rng.Next(options.Length)];
+         Shot pick = options[rng.Next(options.Length)];
+         for (int tries = 0; tries < 8; tries++) {
+            pick = options[rng.Next(options.Length)];
+            if (!IsDisabled(pick) && !BreaksSequence(pick, previous, tries)) return pick;
+         }
+         return IsDisabled(pick) ? Shot.ActorWide : pick;
       }
 
       private Shot RandomVictimShot(Shot previous) {
-         // sometimes cut to the player mid-sequence (not in a death cam, where the actor is the killer)
-         if (!deathMode && rng.Next(100) < (actorInCar ? 60 : 35)) {
-            Shot a = RandomActorShot();
-            if (a != previous && a != Shot.ActorFace) return a;
+         // the second shot is usually the shooter, later cuts rarely are (not in a death cam, where the actor is the killer)
+         if (!deathMode && !IsActorShotType(previous)) {
+            int actorChance = sequenceRules ? (cutIndex == 1 ? 75 : 20) : 35;
+            if (actorInCar && actorChance < 60) actorChance = 60;
+            if (rng.Next(100) < actorChance) {
+               Shot a = RandomActorShot(previous);
+               if (a != Shot.ActorFace) return a;
+            }
          }
          return PickVictimShot(previous);
       }
@@ -1032,7 +1224,7 @@ namespace KillCam {
          Shot pick = previous;
          for (int tries = 0; tries < 8; tries++) {
             pick = pool[rng.Next(pool.Count)];
-            if (pick == previous) continue;
+            if (BreaksSequence(pick, previous, tries) || IsDisabled(pick)) continue;
             // shots that need a second character or a vehicle fall back to solo shots
             bool needsActor = pick == Shot.TwoShot || pick == Shot.OverShoulder || pick == Shot.BulletFollow
                || pick == Shot.WhipPan || pick == Shot.CarSide || pick == Shot.CarLowFront;
@@ -1043,15 +1235,20 @@ namespace KillCam {
          }
          if (noActor && (pick == Shot.TwoShot || pick == Shot.OverShoulder || pick == Shot.BulletFollow || pick == Shot.WhipPan)) pick = Shot.OrbitVictim;
          if (!actorInCar && (pick == Shot.CarSide || pick == Shot.CarLowFront)) pick = Shot.OrbitVictim;
+         if (IsDisabled(pick)) pick = IsDisabled(Shot.OrbitVictim) ? Shot.DutchOrbit : Shot.OrbitVictim;
          return pick;
       }
 
       private bool IsActorShot() {
-         return shot == Shot.ActorFace || shot == Shot.ActorWide || shot == Shot.ActorOrbit || shot == Shot.ActorLowAngle
-            || shot == Shot.ActorDolly || shot == Shot.ActorProfile || shot == Shot.ActorCrane || shot == Shot.ActorThreeQuarter
-            || shot == Shot.ActorCloseQuarter || shot == Shot.ActorHeroLow || shot == Shot.ActorGunSide
-            || shot == Shot.ActorRearQuarter || shot == Shot.ActorLongQuarter
-            || shot == Shot.CarSide || shot == Shot.CarLowFront;
+         return IsActorShotType(shot);
+      }
+
+      private bool IsActorShotType(Shot s) {
+         return s == Shot.ActorFace || s == Shot.ActorWide || s == Shot.ActorOrbit || s == Shot.ActorLowAngle
+            || s == Shot.ActorDolly || s == Shot.ActorProfile || s == Shot.ActorCrane || s == Shot.ActorThreeQuarter
+            || s == Shot.ActorCloseQuarter || s == Shot.ActorHeroLow || s == Shot.ActorGunSide
+            || s == Shot.ActorRearQuarter || s == Shot.ActorLongQuarter
+            || s == Shot.CarSide || s == Shot.CarLowFront;
       }
 
       private Vector3 Offset(Vector3 center, float ang, float radius, float height) {
@@ -1368,6 +1565,7 @@ namespace KillCam {
                faceLightObj = new Light(System.Drawing.Color.FromArgb(255, 235, 200), lightRange, lightIntensity);
             }
             faceLightObj.Position = lp;
+            faceLightObj.Intensity = isNight ? lightIntensity : lightIntensity * dayLightScale;
             faceLightObj.Enabled = true;
          } else if (faceLightObj != null && faceLightObj.Enabled) {
             faceLightObj.Enabled = false;
