@@ -5,12 +5,11 @@ ScriptHookDotNet script. When you kill a ped, time slows and the camera orbits t
 Install: install ScriptHookDotNet, copy `KillCam.cs` to `<GTA IV>/scripts/`. `KillCam.ini` is created on first launch.
 
 - Rare: 20% chance, 45 s cooldown, and only on the **last enemy** (`LastEnemyOnly=true`; an enemy is any nearby ped still in combat or that you hurt).
-- Player is **invincible** during the cam (`Invincible=true`) and turned off afterwards (the API can't read the previous state).
+- Player is **invincible** during a kill cam and turned off afterwards (the API can't read the previous state).
 - Camera cuts every `ShotLengthMs` between random shots: orbit victim, low front, high crane, over-the-shoulder. The final shot is the player (orbit or close-up) with `EndOnPlayerPercent` chance.
 - A **timecycle** effect applies instantly and lasts as long as the camera does. If the camera hits geometry it cuts to another shot. The death cam uses the normal shot set, reversed (the dead player is the subject, the killer the actor). `Timecycles` is a comma-separated list of modifier names (one picked at random); an unknown name may do nothing, so try others from the game's timecycle modifier files.
 
 - **Skip** with the Jump button only (Space on keyboard, the Jump button on a controller). Shift does not skip. Hold-release first: a key held when the cam starts doesn't skip.
-- The player aims at the victim during the cam. By default input is NOT locked: the aim task is re-issued every 300 ms, so moving may briefly fight it. `LockPlayerControl=true` freezes input instead.
 - Bleed-outs are ignored: only a sudden health drop (`HitDropThreshold`) within `KillWindowMs` of death counts as a kill.
 - Victim shots are kept higher and moved off walls using a ground-height heuristic (`WallClearance`).
 - Final shot on the player is either a face close-up from his right side or a wide shot with both him and the victim.
@@ -31,7 +30,6 @@ Not compiled or tested in-game.
 
 ## Death / busted hold
 - On death or a busted arrest the cam plays on the player and is held up to `HoldMs` (30 s) or until Jump is pressed. The game is slowed to `HoldTimeScale` to stretch the game's own respawn timer. The script does not touch the screen fade; the cam ends when you respawn. Tune `HoldTimeScale`.
-- `ForceAim` is now off by default (it locks movement/shooting and can jitter the camera).
 
 ## Busted
 The busted cam alternates wide and two-shot framings of the arresting ped and the player.
@@ -48,7 +46,7 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 - The screen is forced to stay faded in during the hold to stop the black screen.
 
 ## Situation-aware cams
-- `SituationShots=true`: shots are weighted by kill distance (far = telephoto/bullet-follow/flyby, close = ground/handheld/dolly), weapon, and vehicles (car-side arc and low-front shots when you're driving; wider radii when anyone is in a vehicle).
+- `SituationShots=true`: shots are weighted by kill distance (far = telephoto/bullet-follow/flyby, close = ground/handheld/dolly), and vehicles (car-side arc and low-front shots when you're driving; wider radii when anyone is in a vehicle).
 - New styles: Telephoto, BulletFollow, PullBack, WhipPan, CrashZoom, CarSide, CarLowFront.
 
 ## Slow motion
