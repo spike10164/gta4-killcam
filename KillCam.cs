@@ -102,6 +102,7 @@ namespace KillCam {
       private bool behindKill = false;
       private bool frontKnown = false;
       private float frontAngle = 0.0f;
+      private int rampMs = 1500;
       private float rampFrom = 0.6f;
       private bool lastEnemyRamp = true;
       private float baseScale = 0.05f;
