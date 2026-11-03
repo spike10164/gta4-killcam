@@ -1024,7 +1024,7 @@ namespace KillCam {
                target = victimHead;
                break;
             case Shot.ActorFace: {
-               // dynamic close-up: starts wide on the actor's right, pushes in, swings toward the front and tightens the lens
+               // dynamic close-up: starts wide on the actor's right, stays back, swings toward the front and tightens a long lens
                int nowTick = Environment.TickCount;
                float t = (nowTick - shotStartTick) / (float)activeShotMs;
                if (t > 1.0f) t = 1.0f;
@@ -1032,15 +1032,15 @@ namespace KillCam {
                float hdg = ((actor != null && actor.Exists()) ? actor.Heading : 0.0f) * (float)Math.PI / 180.0f;
                if (!hasFixedPos) {
                   faceScale = 1.0f;
-                  if (IsBlocked(Offset(hd, hdg + 0.5f, 2.3f, 0.2f), pp.Z)) faceScale = 0.65f;
+                  if (IsBlocked(Offset(hd, hdg + 0.5f, 4.6f, 0.2f), pp.Z)) faceScale = 0.6f;
                   hasFixedPos = true;
                }
                float faceAngle = hdg + 0.45f + t * 0.5f;
-               float faceDist = S((2.3f - 0.5f * t) * faceScale);
+               float faceDist = S((4.6f - 0.8f * t) * faceScale);
                // roughly head height, easing slightly lower as it pushes in
                pos = Offset(hd, faceAngle, faceDist, 0.05f - 0.15f * t);
                target = hd;
-               cam.FOV = 44.0f - 8.0f * t;
+               cam.FOV = 24.0f - 6.0f * t;
                break;
             }
             case Shot.ActorWide:
