@@ -79,9 +79,7 @@ namespace KillCam {
       private float orbitRadius = 1.9f;
       private float orbitHeight = 0.5f;
       private float orbitSpeedDeg = 4.0f; // degrees per real second
-      private bool invincible = true;
       private string[] timecycles = new string[] { "Steel", "Cinema", "Eclipse" };
-      private int effectMs = 7000;
       private bool debug = false;
 
       // a single health drop of at least this much counts as a hit; bleeding drops by 1-2 at a time
@@ -89,10 +87,7 @@ namespace KillCam {
       // a death only counts as a kill if the last hit was this recent
       private int killWindowMs = 1500;
       private float camClearance = 1.3f;
-      private bool lockPlayer = false;
-      private int lastAimTick = 0;
       private bool skipArmed = false;
-      private bool controlLocked = false;
 
       // death cam: when the player is killed by an enemy, the roles are reversed
       private bool deathCam = true;
@@ -119,12 +114,10 @@ namespace KillCam {
       private int lastErrorTick = -100000;
       private int lastPedScanTick = 0;
       private bool situationShots = true;
-      private int weaponClass = 0; // 0 none, 1 melee, 2 handgun, 3 smg/rifle, 4 shotgun, 5 sniper, 6 explosive
       private float killDist = 0.0f;
       private bool actorInCar = false;
       private bool victimInCar = false;
       private float radiusMul = 1.0f;
-      private int effectActiveMs = 7000;
       private int guaranteeAfterMs = 300000;
       private int lastKillCamTick = Environment.TickCount;
       private bool deathAnyCause = true;
@@ -137,7 +130,6 @@ namespace KillCam {
       private bool bustedHandled = false;
       private int deathHoldMs = 30000;
       private float deathTimeScale = 0.02f;
-      private bool forceAim = false;
       private int activeDurationMs = 7000;
 
       // light on the actor's face during the face shot
@@ -266,7 +258,7 @@ namespace KillCam {
             "OrbitSpeedDegPerSec=4",
             "// Cameras are pulled in when a wall is detected closer than this (metres)",
             "WallClearance=1.3",
-            "// Choose shots by the situation: kill distance, weapon, and whether anyone is in a vehicle",
+            "// Choose shots by the situation: kill distance and whether anyone is in a vehicle",
             "SituationShots=true",
             "// Stronger cams for bigger moments: killing the last enemy, or a kill while at low health.",
             "// Each tier adds length and slower motion",
@@ -282,15 +274,6 @@ namespace KillCam {
             "InteriorMode=Tight",
             "// Scale applied to distances in Tight mode (smaller = closer)",
             "InteriorScale=0.5",
-            "",
-            "[Player]",
-            "// Player cannot be hurt during the cam",
-            "Invincible=true",
-            "// true = freeze player input during the cam. false = player keeps control while being forced to aim at the dead ped",
-            "LockPlayerControl=false",
-            "// Experimental. Makes the player aim at the dead ped. This takes over the player's movement and shooting",
-            "// and can cause camera jitter, so it is off by default",
-            "ForceAim=false",
             "",
             "[Death]",
             "// Reverse logic: when an enemy kills the player, play the cam on the player's body",
@@ -363,8 +346,6 @@ namespace KillCam {
          orbitRadius = Settings.GetValueFloat("OrbitRadius", "Camera", 1.9f);
          orbitHeight = Settings.GetValueFloat("OrbitHeight", "Camera", 0.5f);
          orbitSpeedDeg = Settings.GetValueFloat("OrbitSpeedDegPerSec", "Camera", 4.0f);
-         invincible = Settings.GetValueBool("Invincible", "Player", true);
-         lockPlayer = Settings.GetValueBool("LockPlayerControl", "Player", false);
          deathCam = Settings.GetValueBool("DeathCam", "Death", true);
          bustedCam = Settings.GetValueBool("BustedCam", "Death", true);
          guaranteeAfterMs = Settings.GetValueInteger("GuaranteeAfterMs", "General", 300000);
@@ -374,7 +355,6 @@ namespace KillCam {
          if (bustedCuts < 1) bustedCuts = 1;
          deathHoldMs = Settings.GetValueInteger("HoldMs", "Death", 30000);
          deathTimeScale = Settings.GetValueFloat("HoldTimeScale", "Death", 0.02f);
-         forceAim = Settings.GetValueBool("ForceAim", "Player", false);
          if (deathTimeScale < 0.01f) deathTimeScale = 0.01f;
          if (deathTimeScale > 1.0f) deathTimeScale = 1.0f;
          deathChancePercent = Settings.GetValueInteger("DeathCamChancePercent", "Death", 100);
@@ -580,108 +560,72 @@ namespace KillCam {
             Debug("kill cam overdue, guaranteed");
          } else if (rng.Next(100) >= chancePercent) { Debug("skipped: chance roll"); return; }
 
-         BeginCamera(killed, player, false);
+         BeginCamera(killed, player, false, false);
          if (state == CamState.Playing) lastKillCamTick = Environment.TickCount;
+      }
+
+      // nearest living tracked ped to the player. mode 0 = one that damaged the player,
+      // 1 = one still in combat, 2 = any
+      private Ped NearestTracked(Ped player, int mode) {
+         Ped best = null;
+         float bestDist = 100000.0f;
+         for (int i = 0; i < tracked.Count; i++) {
+            Ped p = tracked[i].Ped;
+            if (p == null || !p.Exists() || p.isDead || p.Equals(player)) continue;
+            if (mode == 0 && !player.HasBeenDamagedBy(p)) continue;
+            if (mode == 1 && !p.isInCombat) continue;
+            float d = p.Position.DistanceTo(player.Position);
+            if (d < bestDist) { bestDist = d; best = p; }
+         }
+         return best;
       }
 
       // Reverse logic: the player was killed, so the dead one is the player and the actor is the killer.
       private void TryStartDeathCamera(Ped player) {
          if (rng.Next(100) >= deathChancePercent) { Debug("death cam skipped: chance roll"); return; }
-
-         // the killer is the nearest living ped that damaged the player, else the nearest one still fighting
-         Ped killer = null;
-         float best = 100000.0f;
-         for (int pass = 0; pass < 2 && killer == null; pass++) {
-            for (int i = 0; i < tracked.Count; i++) {
-               Ped p = tracked[i].Ped;
-               if (p == null || !p.Exists() || p.isDead || p.Equals(player)) continue;
-               if (pass == 0 ? !player.HasBeenDamagedBy(p) : !p.isInCombat) continue;
-               float d = p.Position.DistanceTo(player.Position);
-               if (d < best) { best = d; killer = p; }
-            }
-         }
+         Ped killer = NearestTracked(player, 0);
+         if (killer == null) killer = NearestTracked(player, 1);
          if (killer == null) {
             if (!deathAnyCause) { Debug("death cam skipped: no killer found"); return; }
             Debug("death cam: no killer");
          }
-         BeginCamera(player, killer, true);
+         BeginCamera(player, killer, true, false);
       }
 
       private void TryStartBustedCamera(Ped player) {
          if (rng.Next(100) >= deathChancePercent) return;
-         Ped cop = null;
-         float best = 100000.0f;
-         for (int i = 0; i < tracked.Count; i++) {
-            Ped p = tracked[i].Ped;
-            if (p == null || !p.Exists() || p.isDead || p.Equals(player)) continue;
-            float d = p.Position.DistanceTo(player.Position);
-            if (d < best) { best = d; cop = p; }
-         }
+         Ped cop = NearestTracked(player, 2);
          if (cop == null) { Debug("busted cam skipped: nobody nearby"); return; }
          BeginCamera(player, cop, true, true);
       }
 
-      // Fades the screen back in if the game's wasted/busted fade-out starts
-      private void BeginCamera(Ped focus, Ped actingPed, bool death) {
-         BeginCamera(focus, actingPed, death, false);
-      }
-
+      // Sets up and starts a cam. death = the player is the subject (death or busted), busted = arrest.
       private void BeginCamera(Ped focus, Ped actingPed, bool death, bool busted) {
-         bustedMode = busted;
-         tier = 0;
-         finalShotStarted = false;
-         deathStartPos = focus.Position;
          interior = false;
          try {
             interior = GTA.Native.Function.Call<bool>("IS_INTERIOR_SCENE");
          } catch (Exception) { }
          if (interior && string.Compare(interiorMode, "Disabled", true) == 0) { Debug("skipped: interior"); return; }
          if (interior && string.Compare(interiorMode, "Normal", true) == 0) interior = false;
+
+         bustedMode = busted;
+         deathMode = death;
          victim = focus;
          actor = actingPed;
-         deathMode = death;
-         lastVictimPos = victim.Position;
          noActor = (actor == null);
+         deathStartPos = focus.Position;
+         lastVictimPos = victim.Position;
          lastActorPos = noActor ? victim.Position : actor.Position;
-         activeShotMs = shotLengthMs;
-         ReadSituation(death);
-         activeDurationMs = death ? deathHoldMs : durationMs;
-         effectActiveMs = effectMs;
-         float slowNow = death ? deathTimeScale : slowScale;
-         if (!death) {
-            if (tiersOn) {
-               if (lastEnemyKill) tier++;
-               if (actor != null && actor.Exists() && actor.Health <= 30) tier++;
-               if (tier > 0) {
-                  float tm = 1.0f + 0.15f * tier;
-                  activeDurationMs = (int)(activeDurationMs * tm);
-                  effectActiveMs = (int)(effectActiveMs * tm);
-                  slowNow *= (1.0f - 0.12f * tier);
-                  if (slowNow < 0.02f) slowNow = 0.02f;
-               }
-            }
-            // killing from a car: world crawls so the player can still steer clear of obstacles afterwards
-            if (actorInCar) {
-               slowNow *= 0.4f;
-               if (slowNow < 0.02f) slowNow = 0.02f;
-            }
-            Debug("tier " + tier.ToString());
-         }
-         if (busted) activeShotMs = Math.Max(shotLengthMs, deathHoldMs / bustedCuts);
-         // a freshly created camera can fail to exist (e.g. while the game is mid death/respawn), so retry and give up cleanly
-         cam = null;
-         for (int attempt = 0; attempt < 3 && cam == null; attempt++) {
-            Camera c = new Camera();
-            if (c.Exists()) cam = c;
-            else try { c.Delete(); } catch (Exception) { }
-         }
-         if (cam == null) { Debug("camera could not be created, skipping"); return; }
-         cam.FOV = 42.0f;
-         finalShotChosen = false;
-         hasFixedPos = false;
+         ReadSituation();
+
+         float slowNow = PlanTiming(death, busted);
+         if (!CreateCamera()) { Debug("camera could not be created, skipping"); return; }
+
          int now = Environment.TickCount;
          startTick = now;
          lastFrameTick = now;
+         finalShotChosen = false;
+         finalShotStarted = false;
          ChooseShot(true);
          cam.Activate();
 
@@ -690,17 +634,10 @@ namespace KillCam {
          lastSetScale = -1.0f;
          ApplyTimeScale(now);
          timeScaleSet = true;
+         // the player cannot be hurt during a kill cam (reset in StopCamera; the API cannot read the old state)
          if (!death) {
-            Ped player = actor;
-            if (invincible) {
-               player.Invincible = true;
-               madeInvincible = true;
-            }
-            if (lockPlayer) {
-               Player.CanControlCharacter = false;
-               controlLocked = true;
-            }
-            if (forceAim) AimAtVictim(player, true);
+            actor.Invincible = true;
+            madeInvincible = true;
          }
          // the skip key must be released once before it counts, so a held sprint does not skip at once
          skipArmed = !SkipPressed();
@@ -710,6 +647,44 @@ namespace KillCam {
          state = CamState.Playing;
          this.Interval = 0;
          Debug(death ? "started (death cam)" : "started");
+      }
+
+      // Works out how long the cam runs, how long each shot lasts and how slow the game is.
+      private float PlanTiming(bool death, bool busted) {
+         tier = 0;
+         activeShotMs = shotLengthMs;
+         activeDurationMs = death ? deathHoldMs : durationMs;
+         float slow = death ? deathTimeScale : slowScale;
+         if (!death) {
+            if (tiersOn) {
+               if (lastEnemyKill) tier++;
+               if (actor != null && actor.Exists() && actor.Health <= 30) tier++;
+               if (tier > 0) {
+                  activeDurationMs = (int)(activeDurationMs * (1.0f + 0.15f * tier));
+                  slow *= (1.0f - 0.12f * tier);
+               }
+            }
+            // killing from a car: the world crawls so the player can still steer clear of obstacles afterwards
+            if (actorInCar) slow *= 0.4f;
+            if (slow < 0.02f) slow = 0.02f;
+            Debug("tier " + tier.ToString());
+         }
+         if (busted) activeShotMs = Math.Max(shotLengthMs, deathHoldMs / bustedCuts);
+         return slow;
+      }
+
+      // a freshly created camera can fail to exist (e.g. while the game is mid death/respawn), so retry
+      private bool CreateCamera() {
+         cam = null;
+         for (int attempt = 0; attempt < 3 && cam == null; attempt++) {
+            Camera c = new Camera();
+            if (c.Exists()) cam = c;
+            else try { c.Delete(); } catch (Exception) { }
+         }
+         if (cam == null) return false;
+         cam.FOV = 42.0f;
+         hasFixedPos = false;
+         return true;
       }
 
       private void SetScale(float v) {
@@ -740,9 +715,8 @@ namespace KillCam {
          SetScale(baseScale);
       }
 
-      // works out weapon class, kill distance and vehicle use for the shot weighting
-      private void ReadSituation(bool death) {
-         weaponClass = 0;
+      // works out kill distance, kill direction and vehicle use for the shot weighting
+      private void ReadSituation() {
          actorInCar = false;
          victimInCar = false;
          killDist = 0.0f;
@@ -764,19 +738,11 @@ namespace KillCam {
                   frontAngle = (float)Math.Atan2(fy, fx);
                   frontKnown = true;
                }
-               int w = (int)actor.Weapons.CurrentType;
-               if (w == 1 || w == 2 || w == 3) weaponClass = 1;
-               else if (w == 9 || (w >= 7 && w <= 9)) weaponClass = 2;
-               else if (w == 10 || w == 11) weaponClass = 4;
-               else if (w == 12 || w == 13 || w == 14 || w == 15) weaponClass = 3;
-               else if (w == 16 || w == 17) weaponClass = 5;
-               else if (w == 4 || w == 5 || w == 6 || w == 18) weaponClass = 6;
-               else if (w > 0) weaponClass = 2;
             }
             victimInCar = victim.isInVehicle();
          } catch (Exception) { }
          if (actorInCar || victimInCar) radiusMul = 1.5f;
-         Debug("situation: weapon " + weaponClass.ToString() + ", dist " + killDist.ToString("0.0") + ", actorCar " + actorInCar.ToString() + ", victimCar " + victimInCar.ToString());
+         Debug("situation: dist " + killDist.ToString("0.0") + ", actorCar " + actorInCar.ToString() + ", victimCar " + victimInCar.ToString());
       }
 
       private Vector3 ActorPos() {
@@ -790,6 +756,22 @@ namespace KillCam {
          return new Vector3(ap.X, ap.Y, ap.Z + 0.65f);
       }
 
+      // the actor's facing as a world angle (radians), matching the Offset() convention
+      private float ActorFacing() {
+         float h = (actor != null && actor.Exists()) ? actor.Heading : 0.0f;
+         return h * (float)Math.PI / 180.0f + (float)Math.PI / 2.0f;
+      }
+
+      // Places the camera around the actor's head. yaw is measured from the direction they face
+      // (0 = straight in front, +/-PI/2 = their side), height is relative to the head and lookDrop
+      // lowers the aim point below the head.
+      private void ActorQuarter(float yaw, float dist, float height, float lookDrop, float fov, out Vector3 pos, out Vector3 target) {
+         Vector3 head = ActorHead();
+         pos = ClearPosition(head, ActorFacing() + yaw, dist, height);
+         target = new Vector3(head.X, head.Y, head.Z - lookDrop);
+         cam.FOV = fov;
+      }
+
       // Jump only: Space on keyboard, X on a controller. Sprint (Shift) must not skip.
       private bool SkipPressed() {
          return Game.isGameKeyPressed(GameKey.Jump);
@@ -798,16 +780,6 @@ namespace KillCam {
       // scales distances down for the tight interior mode
       private float S(float v) {
          return interior ? v * interiorScale : v;
-      }
-
-      // Forces the aim without locking input. Without the lock, player input can cancel the task,
-      // so UpdateCamera re-issues it every few hundred ms (clear = false avoids resetting the pose).
-      private void AimAtVictim(Ped player, bool clear) {
-         try {
-            if (clear) player.Task.ClearAll();
-            player.Task.AimAt(new Vector3(lastVictimPos.X, lastVictimPos.Y, lastVictimPos.Z + 0.3f), durationMs);
-            lastAimTick = Environment.TickCount;
-         } catch (Exception) { }
       }
 
       // Heuristic wall check: if the first surface below a point high above it is much higher
@@ -958,7 +930,7 @@ namespace KillCam {
          for (int i = 0; i < w; i++) pool.Add(sh);
       }
 
-      // weighted pick of a shot focused on the victim, shaped by distance, weapon and vehicles
+      // weighted pick of a shot focused on the victim, shaped by distance and vehicles
       private Shot PickVictimShot(Shot previous) {
          pool.Clear();
          W(Shot.OrbitVictim, 2); W(Shot.LowFront, 2); W(Shot.OverShoulder, 2); W(Shot.DollyIn, 2);
@@ -972,14 +944,6 @@ namespace KillCam {
             bool near = killDist > 0.0f && killDist < 4.0f;
             if (far && !interior) { W(Shot.Telephoto, 4); W(Shot.BulletFollow, 3); W(Shot.Flyby, 2); W(Shot.ZoomPull, 2); W(Shot.CrashZoom, 2); }
             if (near) { W(Shot.GroundClose, 3); W(Shot.HandheldClose, 2); W(Shot.DollyIn, 2); W(Shot.LowFront, 2); }
-            switch (weaponClass) {
-               case 1: W(Shot.GroundClose, 3); W(Shot.HandheldClose, 3); W(Shot.DutchOrbit, 2); W(Shot.OrbitVictim, 1); break;
-               case 2: W(Shot.OverShoulder, 2); W(Shot.WhipPan, 1); break;
-               case 3: W(Shot.HandheldClose, 1); W(Shot.WhipPan, 2); break;
-               case 4: W(Shot.CrashZoom, 3); W(Shot.HandheldClose, 2); W(Shot.LowFront, 2); break;
-               case 5: W(Shot.BulletFollow, 4); W(Shot.CrashZoom, 2); if (!interior) { W(Shot.Telephoto, 4); W(Shot.ZoomPull, 2); } break;
-               case 6: W(Shot.TwoShot, 1); if (!interior) { W(Shot.HighCrane, 3); W(Shot.Flyby, 3); W(Shot.TopDown, 2); W(Shot.ZoomPull, 2); } break;
-            }
             if (matchKill && behindKill) { W(Shot.LowFront, 3); W(Shot.DollyIn, 3); W(Shot.GroundClose, 2); }
             if (actorInCar) { W(Shot.CarSide, 6); W(Shot.CarLowFront, 5); W(Shot.TwoShot, 6); }
             if (victimInCar && !interior) { W(Shot.Flyby, 2); W(Shot.HighCrane, 2); W(Shot.SideTrack, 2); }
@@ -1054,66 +1018,41 @@ namespace KillCam {
                pos = ClearPosition(pp, back + shotDir * (0.12f + 0.3f * tos), 1.9f - 0.5f * tos, 1.35f - 0.2f * tos);
                target = victimHead;
                break;
+            case Shot.ActorThreeQuarter: {
+               // front three-quarter hero shot, near chest/face height, drifting slowly round and in
+               float t3 = ShotT();
+               ActorQuarter(shotDir * (0.85f - 0.25f * t3), 3.0f - 0.6f * t3, -0.3f, 0.2f, 36.0f - 4.0f * t3, out pos, out target);
+               break;
+            }
             case Shot.ActorCloseQuarter: {
                // tight three-quarter on the face, slow push in on a longer lens
                float c3 = ShotT();
-               Vector3 hc = ActorHead();
-               float fc = ((actor != null && actor.Exists()) ? actor.Heading : 0.0f) * (float)Math.PI / 180.0f + (float)Math.PI / 2.0f;
-               pos = ClearPosition(hc, fc + shotDir * (0.7f + 0.15f * c3), 2.4f - 0.5f * c3, 0.0f);
-               target = new Vector3(hc.X, hc.Y, hc.Z - 0.05f);
-               cam.FOV = 28.0f - 4.0f * c3;
+               ActorQuarter(shotDir * (0.7f + 0.15f * c3), 2.4f - 0.5f * c3, 0.0f, 0.05f, 28.0f - 4.0f * c3, out pos, out target);
                break;
             }
             case Shot.ActorHeroLow: {
                // heroic low angle from the front quarter, looking up at the shooter, slow rise
                float h3 = ShotT();
-               Vector3 hh = ActorHead();
-               float fh = ((actor != null && actor.Exists()) ? actor.Heading : 0.0f) * (float)Math.PI / 180.0f + (float)Math.PI / 2.0f;
-               pos = ClearPosition(hh, fh + shotDir * 0.6f, 3.4f, -1.1f + 0.35f * h3);
-               target = new Vector3(hh.X, hh.Y, hh.Z - 0.35f);
-               cam.FOV = 38.0f;
+               ActorQuarter(shotDir * 0.6f, 3.4f, -1.1f + 0.35f * h3, 0.35f, 38.0f, out pos, out target);
                break;
             }
             case Shot.ActorGunSide: {
-               // side-on to the shooter so the gun arm runs across the frame, easing slowly forward
+               // side-on so the gun arm runs across the frame, easing slowly forward
                float g3 = ShotT();
-               Vector3 hg = ActorHead();
-               float fg = ((actor != null && actor.Exists()) ? actor.Heading : 0.0f) * (float)Math.PI / 180.0f + (float)Math.PI / 2.0f;
-               pos = ClearPosition(hg, fg + shotDir * (1.35f - 0.2f * g3), 3.6f - 0.5f * g3, -0.35f);
-               target = new Vector3(hg.X, hg.Y, hg.Z - 0.3f);
-               cam.FOV = 34.0f;
-               break;
-            }
-            case Shot.ActorRearQuarter: {
-               // behind and beside the shooter at shoulder height, looking past them along their aim
-               float r3 = ShotT();
-               Vector3 hr = ActorHead();
-               float fr = ((actor != null && actor.Exists()) ? actor.Heading : 0.0f) * (float)Math.PI / 180.0f + (float)Math.PI / 2.0f;
-               pos = ClearPosition(hr, fr + (float)Math.PI + shotDir * (0.55f - 0.15f * r3), 2.7f - 0.4f * r3, 0.15f);
-               Vector3 ahead = Offset(hr, fr, 5.0f, -0.45f);
-               target = ahead;
-               cam.FOV = 38.0f;
+               ActorQuarter(shotDir * (1.35f - 0.2f * g3), 3.6f - 0.5f * g3, -0.35f, 0.3f, 34.0f, out pos, out target);
                break;
             }
             case Shot.ActorLongQuarter: {
                // distant long-lens three-quarter, compressed background, very slow push in
                float l3 = ShotT();
-               Vector3 hl = ActorHead();
-               float fl = ((actor != null && actor.Exists()) ? actor.Heading : 0.0f) * (float)Math.PI / 180.0f + (float)Math.PI / 2.0f;
-               pos = ClearPosition(hl, fl + shotDir * 0.75f, 7.0f - 1.2f * l3, -0.1f);
-               target = new Vector3(hl.X, hl.Y, hl.Z - 0.3f);
-               cam.FOV = 17.0f;
+               ActorQuarter(shotDir * 0.75f, 7.0f - 1.2f * l3, -0.1f, 0.3f, 17.0f, out pos, out target);
                break;
             }
-            case Shot.ActorThreeQuarter: {
-               // front three-quarter hero shot: in front of and beside the shooter, near chest/face height,
-               // looking slightly up, drifting slowly round and in
-               float t3 = ShotT();
-               Vector3 h3 = ActorHead();
-               float fwd = ((actor != null && actor.Exists()) ? actor.Heading : 0.0f) * (float)Math.PI / 180.0f + (float)Math.PI / 2.0f;
-               pos = ClearPosition(h3, fwd + shotDir * (0.85f - 0.25f * t3), 3.0f - 0.6f * t3, -0.3f);
-               target = new Vector3(h3.X, h3.Y, h3.Z - 0.2f);
-               cam.FOV = 36.0f - 4.0f * t3;
+            case Shot.ActorRearQuarter: {
+               // behind and beside the shooter at shoulder height, looking past them along their aim
+               float r3 = ShotT();
+               ActorQuarter((float)Math.PI + shotDir * (0.55f - 0.15f * r3), 2.7f - 0.4f * r3, 0.15f, 0.0f, 38.0f, out pos, out target);
+               target = Offset(ActorHead(), ActorFacing(), 5.0f, -0.45f);
                break;
             }
             case Shot.ActorFace: {
@@ -1407,10 +1346,7 @@ namespace KillCam {
 
          if (!finalShotStarted && now - shotStartTick >= activeShotMs) {
             ChooseShot(false);
-            if (!deathMode && forceAim) AimAtVictim(player, false);
          }
-
-         if (!deathMode && forceAim && now - lastAimTick >= 300) AimAtVictim(player, false);
 
          // orbit speed uses real time, so slow motion does not stall the camera
          float dt = (now - lastFrameTick) / 1000.0f;
@@ -1442,14 +1378,6 @@ namespace KillCam {
             madeInvincible = false;
             Ped player = Player.Character;
             if (player != null && player.Exists()) player.Invincible = false;
-         }
-         if (controlLocked) {
-            Player.CanControlCharacter = true;
-            controlLocked = false;
-         }
-         if (state == CamState.Playing && !deathMode && forceAim) {
-            Ped p2 = Player.Character;
-            if (p2 != null && p2.Exists()) p2.Task.ClearAll();
          }
          if (state == CamState.Playing) {
             lastEndTick = Environment.TickCount;
