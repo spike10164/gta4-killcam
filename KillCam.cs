@@ -1427,6 +1427,8 @@ namespace KillCam {
             try { cam.Deactivate(); } catch (Exception) { }
             try { cam.Delete(); } catch (Exception) { }
             cam = null;
+            // always release scripted-camera mode explicitly so the game camera gets control back
+            try { GTA.Native.Function.Call("ACTIVATE_SCRIPTED_CAMS", 0, 0); } catch (Exception) { }
          }
          if (faceLightObj != null) {
             try { faceLightObj.Enabled = false; } catch (Exception) { }
