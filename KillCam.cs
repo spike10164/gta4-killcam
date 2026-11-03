@@ -855,6 +855,8 @@ namespace KillCam {
       private void StartEffect() {
          if (timecycles.Length == 0) return;
          string name = timecycles[rng.Next(timecycles.Length)];
+         // the player's death uses the game's own death look
+         if (deathMode && !bustedMode) name = "death";
          if (name.Length == 0) return;
          effectName = name;
          GTA.Native.Function.Call("SET_TIMECYCLE_MODIFIER", name);
