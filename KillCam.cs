@@ -171,6 +171,8 @@ namespace KillCam {
 
       public KillCam() {
          LoadSettings();
+         // clears any scripted camera left behind by a previous run of this script
+         ReleaseView();
          this.Interval = 100;
          this.Tick += new EventHandler(this.KillCam_Tick);
          this.PerFrameDrawing += new GraphicsEventHandler(this.KillCam_Draw);
@@ -434,6 +436,11 @@ namespace KillCam {
             if (state == CamState.Playing) {
                UpdateCamera();
             } else {
+               if (releaseChecks > 0 && Environment.TickCount - releaseTick >= 700) {
+                  releaseChecks--;
+                  releaseTick = Environment.TickCount;
+                  ReleaseView();
+               }
                CheckIniReload();
                ScanForKills();
             }
@@ -1363,15 +1370,25 @@ namespace KillCam {
          PositionCamera();
       }
 
+      private int releaseChecks = 0;
+      private int releaseTick = 0;
+
+      // hands the view back to the normal gameplay camera, whatever state the script camera is in
+      private void ReleaseView() {
+         try { GTA.Native.Function.Call("ACTIVATE_SCRIPTED_CAMS", 0, 0); } catch (Exception) { }
+      }
+
       private void StopCamera() {
          // the camera goes first so a failure further down can never leave the view stuck
          if (cam != null) {
             try { cam.Deactivate(); } catch (Exception) { }
             try { cam.Delete(); } catch (Exception) { }
             cam = null;
-            // always release scripted-camera mode explicitly so the game camera gets control back
-            try { GTA.Native.Function.Call("ACTIVATE_SCRIPTED_CAMS", 0, 0); } catch (Exception) { }
          }
+         ReleaseView();
+         // the release is repeated briefly after the cam ends, in case the game re-applied it
+         releaseChecks = 2;
+         releaseTick = Environment.TickCount;
          if (faceLightObj != null) {
             try { faceLightObj.Enabled = false; } catch (Exception) { }
          }
