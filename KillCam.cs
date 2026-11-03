@@ -19,6 +19,7 @@ namespace KillCam {
       private enum Shot {
          OrbitVictim,
          DeathOverview,
+         ActorThreeQuarter,
          LowFront,
          HighCrane,
          OverShoulder,
@@ -73,7 +74,7 @@ namespace KillCam {
       private float slowScale = 0.05f;
       private float orbitRadius = 1.9f;
       private float orbitHeight = 0.5f;
-      private float orbitSpeedDeg = 12.0f; // degrees per real second
+      private float orbitSpeedDeg = 4.0f; // degrees per real second
       private bool invincible = true;
       private string[] timecycles = new string[] { "Steel", "Cinema", "Eclipse" };
       private int effectMs = 7000;
@@ -258,7 +259,7 @@ namespace KillCam {
             "// Orbit shot height, metres",
             "OrbitHeight=0.5",
             "// Orbit rotation speed, degrees per real second",
-            "OrbitSpeedDegPerSec=12",
+            "OrbitSpeedDegPerSec=4",
             "// Cameras are pulled in when a wall is detected closer than this (metres)",
             "WallClearance=1.3",
             "// Choose shots by the situation: kill distance, weapon, and whether anyone is in a vehicle",
@@ -357,7 +358,7 @@ namespace KillCam {
          slowScale = Settings.GetValueFloat("SlowMotionScale", "Camera", 0.05f);
          orbitRadius = Settings.GetValueFloat("OrbitRadius", "Camera", 1.9f);
          orbitHeight = Settings.GetValueFloat("OrbitHeight", "Camera", 0.5f);
-         orbitSpeedDeg = Settings.GetValueFloat("OrbitSpeedDegPerSec", "Camera", 12.0f);
+         orbitSpeedDeg = Settings.GetValueFloat("OrbitSpeedDegPerSec", "Camera", 4.0f);
          invincible = Settings.GetValueBool("Invincible", "Player", true);
          lockPlayer = Settings.GetValueBool("LockPlayerControl", "Player", false);
          deathCam = Settings.GetValueBool("DeathCam", "Death", true);
@@ -892,10 +893,10 @@ namespace KillCam {
             // the windscreen and car body make face and profile shots useless
             options = new Shot[] { Shot.ActorWide, Shot.ActorOrbit, Shot.ActorCrane, Shot.CarSide, Shot.CarLowFront };
          } else if (interior) {
-            options = new Shot[] { Shot.ActorFace, Shot.ActorProfile, Shot.ActorLowAngle, Shot.ActorDolly, Shot.ActorOrbit };
+            options = new Shot[] { Shot.ActorFace, Shot.ActorProfile, Shot.ActorLowAngle, Shot.ActorDolly, Shot.ActorOrbit, Shot.ActorThreeQuarter, Shot.ActorThreeQuarter };
          } else {
             options = new Shot[] { Shot.ActorFace, Shot.ActorWide, Shot.ActorProfile, Shot.ActorLowAngle,
-               Shot.ActorDolly, Shot.ActorOrbit, Shot.ActorCrane };
+               Shot.ActorDolly, Shot.ActorOrbit, Shot.ActorCrane, Shot.ActorThreeQuarter, Shot.ActorThreeQuarter, Shot.ActorThreeQuarter };
          }
          return options[rng.Next(options.Length)];
       }
@@ -967,7 +968,7 @@ namespace KillCam {
 
       private bool IsActorShot() {
          return shot == Shot.ActorFace || shot == Shot.ActorWide || shot == Shot.ActorOrbit || shot == Shot.ActorLowAngle
-            || shot == Shot.ActorDolly || shot == Shot.ActorProfile || shot == Shot.ActorCrane
+            || shot == Shot.ActorDolly || shot == Shot.ActorProfile || shot == Shot.ActorCrane || shot == Shot.ActorThreeQuarter
             || shot == Shot.CarSide || shot == Shot.CarLowFront;
       }
 
@@ -1011,10 +1012,22 @@ namespace KillCam {
                float dx = lastVictimPos.X - pp.X;
                float dy = lastVictimPos.Y - pp.Y;
                float back = (float)Math.Atan2(dy, dx) + (float)Math.PI;
-               if (!hasFixedPos) { fixedPos = ClearPosition(pp, back, 1.5f, 1.3f); hasFixedPos = true; }
-               pos = fixedPos;
+               // slow push-in with a gentle sideways drift so it never sits frozen
+               float tos = ShotT();
+               pos = ClearPosition(pp, back + shotDir * (0.12f + 0.3f * tos), 1.9f - 0.5f * tos, 1.35f - 0.2f * tos);
                target = victimHead;
                break;
+            case Shot.ActorThreeQuarter: {
+               // front three-quarter hero shot: in front of and beside the shooter, near chest/face height,
+               // looking slightly up, drifting slowly round and in
+               float t3 = ShotT();
+               Vector3 h3 = ActorHead();
+               float fwd = ((actor != null && actor.Exists()) ? actor.Heading : 0.0f) * (float)Math.PI / 180.0f + (float)Math.PI / 2.0f;
+               pos = ClearPosition(h3, fwd + shotDir * (0.85f - 0.25f * t3), 3.0f - 0.6f * t3, -0.3f);
+               target = new Vector3(h3.X, h3.Y, h3.Z - 0.2f);
+               cam.FOV = 36.0f - 4.0f * t3;
+               break;
+            }
             case Shot.ActorFace: {
                // dynamic close-up: starts wide on the actor's right, stays back, swings toward the front and tightens a long lens
                int nowTick = Environment.TickCount;
