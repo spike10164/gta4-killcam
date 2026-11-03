@@ -18,7 +18,6 @@ namespace KillCam {
 
       private enum Shot {
          OrbitVictim,
-         DeathOverview,
          ActorThreeQuarter,
          LowFront,
          HighCrane,
@@ -503,9 +502,10 @@ namespace KillCam {
             Ped p = t.Ped;
             if (p == null || !p.Exists()) {
                tracked.RemoveAt(i);
-            } else if (p.isDead) {
+            } else if (p.isDead || p.Health <= 0) {
+               // a ped in a euphoria ragdoll can have zero health before the game flags it dead
                tracked.RemoveAt(i);
-               bool byPlayer = p.HasBeenDamagedBy(player);
+               bool byPlayer = p.HasBeenDamagedBy(player) || (now - t.LastHitTick <= killWindowMs && player.isShooting);
                // a big final drop (or a recent big hit) is a kill; slow bleeding is not
                bool direct = (t.Health >= hitDropThreshold) || (now - t.LastHitTick <= killWindowMs);
                Debug("ped died, by player: " + byPlayer.ToString() + ", direct: " + direct.ToString());
@@ -523,13 +523,13 @@ namespace KillCam {
             TryStartCamera(player, killed);
          }
 
-         // the nearby-ped query allocates and the dedupe is O(n^2), so it runs at most twice a second
-         if (now - lastPedScanTick < 500) return;
+         // the nearby-ped query allocates and the dedupe is O(n^2), so it runs at most four times a second
+         if (now - lastPedScanTick < 250) return;
          lastPedScanTick = now;
          Ped[] nearby = World.GetPeds(player.Position, scanRadius);
          for (int i = 0; i < nearby.Length; i++) {
             Ped p = nearby[i];
-            if (p == null || !p.Exists() || p.isDead || p.Equals(player)) continue;
+            if (p == null || !p.Exists() || p.isDead || p.Health <= 0 || p.Equals(player)) continue;
             if (!IsTracked(p)) tracked.Add(new TrackedPed(p));
          }
       }
@@ -634,8 +634,6 @@ namespace KillCam {
             }
             Debug("tier " + tier.ToString());
          }
-         // few, long, sweeping shots so the whole scene stays readable
-         if (death && !busted) activeShotMs = Math.Max(shotLengthMs * 3, 9000);
          if (busted) activeShotMs = Math.Max(shotLengthMs, deathHoldMs / bustedCuts);
          cam = new Camera();
          cam.FOV = 42.0f;
@@ -942,13 +940,6 @@ namespace KillCam {
             if (actorInCar) { W(Shot.CarSide, 4); W(Shot.CarLowFront, 3); }
             if (victimInCar && !interior) { W(Shot.Flyby, 2); W(Shot.HighCrane, 2); W(Shot.SideTrack, 2); }
          }
-         if (deathMode && !bustedMode) {
-            // death cam: high, wide, sweeping views of the fallen player and what is going on around them
-            pool.Clear();
-            W(Shot.DeathOverview, 6);
-            if (!interior) { W(Shot.HighCrane, 1); W(Shot.Flyby, 1); }
-            if (!noActor) W(Shot.TwoShot, 1);
-         }
          Shot pick = previous;
          for (int tries = 0; tries < 8; tries++) {
             pick = pool[rng.Next(pool.Count)];
@@ -1216,14 +1207,6 @@ namespace KillCam {
                target = victimHead;
                break;
             }
-            case Shot.DeathOverview: {
-               // wide sweeping arc, rising slowly, far enough back to see the surroundings
-               float td2 = ShotT();
-               pos = ClearPosition(lastVictimPos, angle, 8.5f + 2.0f * td2, 4.5f + 2.5f * td2);
-               cam.FOV = 45.0f;
-               target = lastVictimPos;
-               break;
-            }
             case Shot.TopDown: {
                // overhead shot with a slow roll
                float tt = ShotT();
@@ -1335,7 +1318,7 @@ namespace KillCam {
          // orbit speed uses real time, so slow motion does not stall the camera
          float dt = (now - lastFrameTick) / 1000.0f;
          lastFrameTick = now;
-         if (shot == Shot.OrbitVictim || shot == Shot.HighCrane || shot == Shot.DutchOrbit || shot == Shot.ActorOrbit || shot == Shot.DeathOverview) {
+         if (shot == Shot.OrbitVictim || shot == Shot.HighCrane || shot == Shot.DutchOrbit || shot == Shot.ActorOrbit) {
             angle += shotDir * orbitSpeedDeg * dt * (float)Math.PI / 180.0f;
          }
          PositionCamera();
