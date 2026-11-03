@@ -780,8 +780,9 @@ namespace KillCam {
       }
 
       private Vector3 ActorHead() {
-         if (actor != null && actor.Exists()) return actor.GetBonePosition(Bone.Head);
-         return new Vector3(lastActorPos.X, lastActorPos.Y, lastActorPos.Z + 1.6f);
+         // bone lookups hit game memory directly and can crash on a ped that is being streamed out, so the head is estimated from the position
+         Vector3 ap = ActorPos();
+         return new Vector3(ap.X, ap.Y, ap.Z + 0.65f);
       }
 
       // Jump only: Space on keyboard, X on a controller. Sprint (Shift) must not skip.
