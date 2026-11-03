@@ -46,6 +46,7 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 - The screen is forced to stay faded in during the hold to stop the black screen.
 
 ## Situation-aware cams
+- `LongRangeChancePercent` / `LongRangeDistance` and `ExplosionChancePercent` raise the cam chance for far kills and for grenade/molotov/rocket kills. Explosive kills also get a bigger tier (longer, slower) and big, high, wide shots.
 - `SituationShots=true`: shots are weighted by kill distance (far = telephoto/bullet-follow/flyby, close = ground/handheld/dolly), and vehicles (car-side arc and low-front shots when you're driving; wider radii when anyone is in a vehicle).
 - New styles: Telephoto, BulletFollow, PullBack, WhipPan, CrashZoom, CarSide, CarLowFront.
 

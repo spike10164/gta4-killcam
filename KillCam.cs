@@ -116,6 +116,10 @@ namespace KillCam {
       private int lastPedScanTick = 0;
       private bool situationShots = true;
       private float killDist = 0.0f;
+      private bool explosive = false;
+      private int longRangeChance = 50;
+      private float longRangeDist = 25.0f;
+      private int explosionChance = 80;
       private bool actorInCar = false;
       private bool victimInCar = false;
       private float radiusMul = 1.0f;
@@ -232,6 +236,11 @@ namespace KillCam {
             "LastEnemyOnly=true",
             "// true = killing the last enemy always plays a kill cam (ignores the chance roll and cooldown)",
             "AlwaysLastEnemyCam=false",
+            "// Higher chance (0-100) for kills from at least LongRangeDistance metres away",
+            "LongRangeChancePercent=50",
+            "LongRangeDistance=25",
+            "// Higher chance (0-100) for kills with grenades, molotovs and rockets; these also get a big, wide shot",
+            "ExplosionChancePercent=80",
             "// Radius (metres) around the player that is watched for kills",
             "ScanRadius=40",
             "// If no kill cam has played on a ped for this long (ms), the next qualifying kill skips the chance roll",
@@ -344,6 +353,9 @@ namespace KillCam {
          cooldownMs = Settings.GetValueInteger("CooldownMs", "General", 45000);
          lastEnemyOnly = Settings.GetValueBool("LastEnemyOnly", "General", true);
          alwaysLastEnemy = Settings.GetValueBool("AlwaysLastEnemyCam", "General", false);
+         longRangeChance = Settings.GetValueInteger("LongRangeChancePercent", "General", 50);
+         longRangeDist = Settings.GetValueFloat("LongRangeDistance", "General", 25.0f);
+         explosionChance = Settings.GetValueInteger("ExplosionChancePercent", "General", 80);
          scanRadius = Settings.GetValueFloat("ScanRadius", "General", 40.0f);
          debug = Settings.GetValueBool("Debug", "General", false);
          durationMs = Settings.GetValueInteger("DurationMs", "Camera", 7000);
@@ -571,7 +583,20 @@ namespace KillCam {
             Debug("last enemy cam forced");
          } else if (IsOverdue()) {
             Debug("kill cam overdue, guaranteed");
-         } else if (rng.Next(100) >= chancePercent) { Debug("skipped: chance roll"); return; }
+         } else {
+            // long-range and explosive kills get a higher chance (the highest applicable one wins)
+            int chance = chancePercent;
+            bool isExplosive = false;
+            float dist = 0.0f;
+            try {
+               dist = player.Position.DistanceTo(killed.Position);
+               int w = (int)player.Weapons.CurrentType;
+               isExplosive = (w == 4 || w == 5 || w == 6 || w == 18);
+            } catch (Exception) { }
+            if (dist >= longRangeDist && longRangeChance > chance) chance = longRangeChance;
+            if (isExplosive && explosionChance > chance) chance = explosionChance;
+            if (rng.Next(100) >= chance) { Debug("skipped: chance roll (" + chance.ToString() + "%)"); return; }
+         }
 
          BeginCamera(killed, player, false, false);
          if (state == CamState.Playing) lastKillCamTick = Environment.TickCount;
@@ -671,6 +696,7 @@ namespace KillCam {
          if (!death) {
             if (tiersOn) {
                if (lastEnemyKill) tier++;
+               if (explosive) tier++;
                if (actor != null && actor.Exists() && actor.Health <= 30) tier++;
                if (tier > 0) {
                   activeDurationMs = (int)(activeDurationMs * (1.0f + 0.15f * tier));
@@ -733,6 +759,7 @@ namespace KillCam {
          actorInCar = false;
          victimInCar = false;
          killDist = 0.0f;
+         explosive = false;
          radiusMul = 1.0f;
          behindKill = false;
          frontKnown = false;
@@ -741,6 +768,8 @@ namespace KillCam {
             if (actor != null && actor.Exists()) {
                killDist = actor.Position.DistanceTo(victim.Position);
                actorInCar = actor.isInVehicle();
+               int wp = (int)actor.Weapons.CurrentType;
+               explosive = (wp == 4 || wp == 5 || wp == 6 || wp == 18);
                // GTA heading: 0 faces +Y and grows counter-clockwise, so forward = (-sin, cos)
                float hr = victim.Heading * (float)Math.PI / 180.0f;
                float fx = -(float)Math.Sin(hr), fy = (float)Math.Cos(hr);
@@ -755,7 +784,7 @@ namespace KillCam {
             victimInCar = victim.isInVehicle();
          } catch (Exception) { }
          if (actorInCar || victimInCar) radiusMul = 1.5f;
-         Debug("situation: dist " + killDist.ToString("0.0") + ", actorCar " + actorInCar.ToString() + ", victimCar " + victimInCar.ToString());
+         Debug("situation: explosive " + explosive.ToString() + ", dist " + killDist.ToString("0.0") + ", actorCar " + actorInCar.ToString() + ", victimCar " + victimInCar.ToString());
       }
 
       private Vector3 ActorPos() {
@@ -958,6 +987,9 @@ namespace KillCam {
             if (far && !interior) { W(Shot.Telephoto, 4); W(Shot.BulletFollow, 3); W(Shot.Flyby, 2); W(Shot.ZoomPull, 2); W(Shot.CrashZoom, 2); }
             if (near) { W(Shot.GroundClose, 3); W(Shot.HandheldClose, 2); W(Shot.DollyIn, 2); W(Shot.LowFront, 2); }
             if (matchKill && behindKill) { W(Shot.LowFront, 3); W(Shot.DollyIn, 3); W(Shot.GroundClose, 2); }
+            // explosions get big, wide, high shots
+            if (explosive && !interior) { W(Shot.HighCrane, 6); W(Shot.Flyby, 6); W(Shot.TopDown, 4); W(Shot.ZoomPull, 4); W(Shot.PullBack, 4); W(Shot.Telephoto, 3); }
+            if (explosive && interior) { W(Shot.PullBack, 6); W(Shot.TwoShot, 4); }
             if (actorInCar) { W(Shot.CarSide, 6); W(Shot.CarLowFront, 5); W(Shot.TwoShot, 6); }
             if (victimInCar && !interior) { W(Shot.Flyby, 2); W(Shot.HighCrane, 2); W(Shot.SideTrack, 2); }
          }
