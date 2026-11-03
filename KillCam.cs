@@ -67,7 +67,7 @@ namespace KillCam {
 
       // settings (see KillCam.ini)
       private bool enabled = true;
-      private int chancePercent = 20;
+      private int chancePercent = 40;
       private int cooldownMs = 45000;
       private bool lastEnemyOnly = true;
       private bool alwaysLastEnemy = false;
@@ -229,7 +229,7 @@ namespace KillCam {
             "// Master switch",
             "Enabled=true",
             "// Chance (0-100) that a qualifying kill triggers the kill cam",
-            "ChancePercent=20",
+            "ChancePercent=40",
             "// Minimum time between kill cams, in milliseconds",
             "CooldownMs=45000",
             "// true = only the last remaining enemy triggers it",
@@ -349,7 +349,7 @@ namespace KillCam {
 
       private void ReadSettings() {
          enabled = Settings.GetValueBool("Enabled", "General", true);
-         chancePercent = Settings.GetValueInteger("ChancePercent", "General", 20);
+         chancePercent = Settings.GetValueInteger("ChancePercent", "General", 40);
          cooldownMs = Settings.GetValueInteger("CooldownMs", "General", 45000);
          lastEnemyOnly = Settings.GetValueBool("LastEnemyOnly", "General", true);
          alwaysLastEnemy = Settings.GetValueBool("AlwaysLastEnemyCam", "General", false);
@@ -575,13 +575,15 @@ namespace KillCam {
       private void TryStartCamera(Ped player, Ped killed) {
          bool otherAlive = IsOtherEnemyAlive(player, killed);
          bool forced = alwaysLastEnemy && !otherAlive;
-         if (!forced && Environment.TickCount - lastEndTick < cooldownMs) { Debug("skipped: cooldown"); return; }
-         if (lastEnemyOnly && otherAlive) { Debug("skipped: other enemy alive"); return; }
+         // an overdue cam is guaranteed on the next kill, even if other enemies are still alive
+         bool overdue = IsOverdue();
+         if (!forced && !overdue && Environment.TickCount - lastEndTick < cooldownMs) { Debug("skipped: cooldown"); return; }
+         if (lastEnemyOnly && otherAlive && !overdue) { Debug("skipped: other enemy alive"); return; }
          lastEnemyKill = !otherAlive;
          Debug("last enemy: " + lastEnemyKill.ToString());
          if (forced) {
             Debug("last enemy cam forced");
-         } else if (IsOverdue()) {
+         } else if (overdue) {
             Debug("kill cam overdue, guaranteed");
          } else {
             // long-range and explosive kills get a higher chance (the highest applicable one wins)
