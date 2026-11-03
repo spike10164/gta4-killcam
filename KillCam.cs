@@ -310,8 +310,7 @@ namespace KillCam {
             "Intensity=50",
             "",
             "[Effect]",
-            "// How long the screen effect stays on (ms)",
-            "EffectMs=7000",
+            "// The screen effect applies instantly and lasts exactly as long as the camera",
             "// On a last-enemy kill the slow-motion eases in from near-normal speed and eases back out at the end",
             "LastEnemyRamp=true",
             "SlowRampMs=1500",
@@ -386,7 +385,6 @@ namespace KillCam {
          interiorScale = Settings.GetValueFloat("InteriorScale", "Camera", 0.5f);
          if (interiorScale < 0.2f) interiorScale = 0.2f;
          if (interiorScale > 1.0f) interiorScale = 1.0f;
-         effectMs = Settings.GetValueInteger("EffectMs", "Effect", 7000);
          tiersOn = Settings.GetValueBool("IntensityTiers", "Camera", true);
          finalHoldMs = Settings.GetValueInteger("FinalHoldMs", "Camera", 1200);
          matchKill = Settings.GetValueBool("MatchKillDirection", "Camera", true);
@@ -643,6 +641,7 @@ namespace KillCam {
             }
             Debug("tier " + tier.ToString());
          }
+         if (death && !busted) activeShotMs = (int)(shotLengthMs * 0.7f);
          if (busted) activeShotMs = Math.Max(shotLengthMs, deathHoldMs / bustedCuts);
          cam = new Camera();
          cam.FOV = 42.0f;
@@ -824,10 +823,13 @@ namespace KillCam {
          if (timecycles.Length == 0) return;
          string name = timecycles[rng.Next(timecycles.Length)];
          if (name.Length == 0) return;
+         effectName = name;
          GTA.Native.Function.Call("SET_TIMECYCLE_MODIFIER", name);
          effectOn = true;
          Debug("effect " + name);
       }
+
+      private string effectName = "";
 
       private void StopEffect() {
          if (!effectOn) return;
@@ -847,10 +849,9 @@ namespace KillCam {
                activeShotMs += finalHoldMs;
                finalShotStarted = true;
             }
-            if (rng.Next(100) < endOnPlayerPercent) {
+            if (!deathMode && rng.Next(100) < endOnPlayerPercent) {
                // in a death cam the actor is the killer, so never push in on their face
-               if (deathMode) next = noActor ? RandomVictimShot(shot) : Shot.ActorWide;
-               else next = RandomActorShot();
+               next = RandomActorShot();
             } else {
                next = RandomVictimShot(shot);
             }
@@ -861,6 +862,8 @@ namespace KillCam {
 
          shot = next;
          shotStartTick = Environment.TickCount;
+         // the game can drop the modifier on its own, so it is re-applied on every cut
+         if (effectOn && !first) GTA.Native.Function.Call("SET_TIMECYCLE_MODIFIER", effectName);
          shotDir = (rng.Next(2) == 0) ? 1.0f : -1.0f;
          hasFixedPos = false;
          clearInit = false;
@@ -945,6 +948,14 @@ namespace KillCam {
             if (actorInCar) { W(Shot.CarSide, 4); W(Shot.CarLowFront, 3); }
             if (victimInCar && !interior) { W(Shot.Flyby, 2); W(Shot.HighCrane, 2); W(Shot.SideTrack, 2); }
          }
+         if (deathMode && !bustedMode) {
+            // death cam: stay on the fallen player, the killer only appears in the odd wide shot
+            pool.Clear();
+            W(Shot.OrbitVictim, 3); W(Shot.LowFront, 3); W(Shot.DollyIn, 3); W(Shot.LowRise, 3);
+            W(Shot.GroundClose, 3); W(Shot.HandheldClose, 3); W(Shot.PullBack, 2); W(Shot.DutchOrbit, 2);
+            if (!interior) { W(Shot.HighCrane, 2); W(Shot.TopDown, 2); W(Shot.SideTrack, 1); }
+            if (!noActor) W(Shot.TwoShot, 1);
+         }
          Shot pick = previous;
          for (int tries = 0; tries < 8; tries++) {
             pick = pool[rng.Next(pool.Count)];
@@ -983,6 +994,7 @@ namespace KillCam {
       }
 
       private void PositionCamera() {
+         int now0 = Environment.TickCount;
          if (victim != null && victim.Exists()) lastVictimPos = victim.Position;
          Vector3 pp = ActorPos();
          Vector3 victimHead = new Vector3(lastVictimPos.X, lastVictimPos.Y, lastVictimPos.Z + 0.4f);
@@ -1247,9 +1259,25 @@ namespace KillCam {
          } else if (faceLightObj != null && faceLightObj.Enabled) {
             faceLightObj.Enabled = false;
          }
+         // if the camera ended up inside geometry, cut to another shot instead of sitting in it
+         if (!interior && now0 - obstructTick >= 250) {
+            obstructTick = now0;
+            Vector3 mid = new Vector3((pos.X + target.X) * 0.5f, (pos.Y + target.Y) * 0.5f, (pos.Z + target.Z) * 0.5f);
+            if (IsBlocked(pos, target.Z - 1.0f) || IsBlocked(mid, target.Z - 1.0f)) obstructCount++;
+            else obstructCount = 0;
+            if (obstructCount >= 2 && now0 - shotStartTick > 700) {
+               obstructCount = 0;
+               Debug("camera obstructed, changing shot");
+               ChooseShot(false);
+               return;
+            }
+         }
          cam.Position = pos;
          cam.LookAt(target);
       }
+
+      private int obstructTick = 0;
+      private int obstructCount = 0;
 
       private void UpdateCamera() {
          int now = Environment.TickCount;
@@ -1277,7 +1305,6 @@ namespace KillCam {
             return;
          }
 
-         if (effectOn && now - startTick >= effectActiveMs) StopEffect();
          if (!deathMode) {
             ApplyTimeScale(now);
          } else if (timeScaleSet) {
