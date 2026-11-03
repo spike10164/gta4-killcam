@@ -110,6 +110,7 @@ namespace KillCam {
       private bool rampActive = false;
       private float lastSetScale = -1.0f;
       private bool madeInvincible = false;
+      private bool invincible = true;
       private bool timeScaleSet = false;
       private int lastErrorTick = -100000;
       private int lastPedScanTick = 0;
@@ -275,6 +276,10 @@ namespace KillCam {
             "// Scale applied to distances in Tight mode (smaller = closer)",
             "InteriorScale=0.5",
             "",
+            "[Player]",
+            "// Player cannot be hurt during a kill cam",
+            "Invincible=true",
+            "",
             "[Death]",
             "// Reverse logic: when an enemy kills the player, play the cam on the player's body",
             "DeathCam=true",
@@ -347,6 +352,7 @@ namespace KillCam {
          orbitHeight = Settings.GetValueFloat("OrbitHeight", "Camera", 0.5f);
          orbitSpeedDeg = Settings.GetValueFloat("OrbitSpeedDegPerSec", "Camera", 4.0f);
          deathCam = Settings.GetValueBool("DeathCam", "Death", true);
+         invincible = Settings.GetValueBool("Invincible", "Player", true);
          bustedCam = Settings.GetValueBool("BustedCam", "Death", true);
          guaranteeAfterMs = Settings.GetValueInteger("GuaranteeAfterMs", "General", 300000);
          situationShots = Settings.GetValueBool("SituationShots", "Camera", true);
@@ -635,7 +641,7 @@ namespace KillCam {
          ApplyTimeScale(now);
          timeScaleSet = true;
          // the player cannot be hurt during a kill cam (reset in StopCamera; the API cannot read the old state)
-         if (!death) {
+         if (!death && invincible) {
             actor.Invincible = true;
             madeInvincible = true;
          }
