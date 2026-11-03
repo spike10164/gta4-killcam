@@ -663,7 +663,14 @@ namespace KillCam {
             Debug("tier " + tier.ToString());
          }
          if (busted) activeShotMs = Math.Max(shotLengthMs, deathHoldMs / bustedCuts);
-         cam = new Camera();
+         // a freshly created camera can fail to exist (e.g. while the game is mid death/respawn), so retry and give up cleanly
+         cam = null;
+         for (int attempt = 0; attempt < 3 && cam == null; attempt++) {
+            Camera c = new Camera();
+            if (c.Exists()) cam = c;
+            else try { c.Delete(); } catch (Exception) { }
+         }
+         if (cam == null) { Debug("camera could not be created, skipping"); return; }
          cam.FOV = 42.0f;
          finalShotChosen = false;
          hasFixedPos = false;
