@@ -19,6 +19,11 @@ namespace KillCam {
       private enum Shot {
          OrbitVictim,
          ActorThreeQuarter,
+         ActorCloseQuarter,
+         ActorHeroLow,
+         ActorGunSide,
+         ActorRearQuarter,
+         ActorLongQuarter,
          LowFront,
          HighCrane,
          OverShoulder,
@@ -891,10 +896,13 @@ namespace KillCam {
             // the windscreen and car body make face and profile shots useless
             options = new Shot[] { Shot.ActorWide, Shot.ActorOrbit, Shot.ActorCrane, Shot.CarSide, Shot.CarLowFront };
          } else if (interior) {
-            options = new Shot[] { Shot.ActorFace, Shot.ActorProfile, Shot.ActorLowAngle, Shot.ActorDolly, Shot.ActorOrbit, Shot.ActorThreeQuarter, Shot.ActorThreeQuarter };
+            options = new Shot[] { Shot.ActorFace, Shot.ActorProfile, Shot.ActorLowAngle, Shot.ActorDolly, Shot.ActorOrbit, Shot.ActorThreeQuarter, Shot.ActorThreeQuarter,
+               Shot.ActorCloseQuarter, Shot.ActorGunSide, Shot.ActorRearQuarter };
          } else {
             options = new Shot[] { Shot.ActorFace, Shot.ActorWide, Shot.ActorProfile, Shot.ActorLowAngle,
-               Shot.ActorDolly, Shot.ActorOrbit, Shot.ActorCrane, Shot.ActorThreeQuarter, Shot.ActorThreeQuarter, Shot.ActorThreeQuarter };
+               Shot.ActorDolly, Shot.ActorOrbit, Shot.ActorCrane, Shot.ActorThreeQuarter, Shot.ActorThreeQuarter, Shot.ActorThreeQuarter,
+               Shot.ActorCloseQuarter, Shot.ActorCloseQuarter, Shot.ActorHeroLow, Shot.ActorHeroLow, Shot.ActorGunSide,
+               Shot.ActorGunSide, Shot.ActorRearQuarter, Shot.ActorLongQuarter, Shot.ActorLongQuarter };
          }
          return options[rng.Next(options.Length)];
       }
@@ -960,6 +968,8 @@ namespace KillCam {
       private bool IsActorShot() {
          return shot == Shot.ActorFace || shot == Shot.ActorWide || shot == Shot.ActorOrbit || shot == Shot.ActorLowAngle
             || shot == Shot.ActorDolly || shot == Shot.ActorProfile || shot == Shot.ActorCrane || shot == Shot.ActorThreeQuarter
+            || shot == Shot.ActorCloseQuarter || shot == Shot.ActorHeroLow || shot == Shot.ActorGunSide
+            || shot == Shot.ActorRearQuarter || shot == Shot.ActorLongQuarter
             || shot == Shot.CarSide || shot == Shot.CarLowFront;
       }
 
@@ -1008,6 +1018,57 @@ namespace KillCam {
                pos = ClearPosition(pp, back + shotDir * (0.12f + 0.3f * tos), 1.9f - 0.5f * tos, 1.35f - 0.2f * tos);
                target = victimHead;
                break;
+            case Shot.ActorCloseQuarter: {
+               // tight three-quarter on the face, slow push in on a longer lens
+               float c3 = ShotT();
+               Vector3 hc = ActorHead();
+               float fc = ((actor != null && actor.Exists()) ? actor.Heading : 0.0f) * (float)Math.PI / 180.0f + (float)Math.PI / 2.0f;
+               pos = ClearPosition(hc, fc + shotDir * (0.7f + 0.15f * c3), 2.4f - 0.5f * c3, 0.0f);
+               target = new Vector3(hc.X, hc.Y, hc.Z - 0.05f);
+               cam.FOV = 28.0f - 4.0f * c3;
+               break;
+            }
+            case Shot.ActorHeroLow: {
+               // heroic low angle from the front quarter, looking up at the shooter, slow rise
+               float h3 = ShotT();
+               Vector3 hh = ActorHead();
+               float fh = ((actor != null && actor.Exists()) ? actor.Heading : 0.0f) * (float)Math.PI / 180.0f + (float)Math.PI / 2.0f;
+               pos = ClearPosition(hh, fh + shotDir * 0.6f, 3.4f, -1.1f + 0.35f * h3);
+               target = new Vector3(hh.X, hh.Y, hh.Z - 0.35f);
+               cam.FOV = 38.0f;
+               break;
+            }
+            case Shot.ActorGunSide: {
+               // side-on to the shooter so the gun arm runs across the frame, easing slowly forward
+               float g3 = ShotT();
+               Vector3 hg = ActorHead();
+               float fg = ((actor != null && actor.Exists()) ? actor.Heading : 0.0f) * (float)Math.PI / 180.0f + (float)Math.PI / 2.0f;
+               pos = ClearPosition(hg, fg + shotDir * (1.35f - 0.2f * g3), 3.6f - 0.5f * g3, -0.35f);
+               target = new Vector3(hg.X, hg.Y, hg.Z - 0.3f);
+               cam.FOV = 34.0f;
+               break;
+            }
+            case Shot.ActorRearQuarter: {
+               // behind and beside the shooter at shoulder height, looking past them along their aim
+               float r3 = ShotT();
+               Vector3 hr = ActorHead();
+               float fr = ((actor != null && actor.Exists()) ? actor.Heading : 0.0f) * (float)Math.PI / 180.0f + (float)Math.PI / 2.0f;
+               pos = ClearPosition(hr, fr + (float)Math.PI + shotDir * (0.55f - 0.15f * r3), 2.7f - 0.4f * r3, 0.15f);
+               Vector3 ahead = Offset(hr, fr, 5.0f, -0.45f);
+               target = ahead;
+               cam.FOV = 38.0f;
+               break;
+            }
+            case Shot.ActorLongQuarter: {
+               // distant long-lens three-quarter, compressed background, very slow push in
+               float l3 = ShotT();
+               Vector3 hl = ActorHead();
+               float fl = ((actor != null && actor.Exists()) ? actor.Heading : 0.0f) * (float)Math.PI / 180.0f + (float)Math.PI / 2.0f;
+               pos = ClearPosition(hl, fl + shotDir * 0.75f, 7.0f - 1.2f * l3, -0.1f);
+               target = new Vector3(hl.X, hl.Y, hl.Z - 0.3f);
+               cam.FOV = 17.0f;
+               break;
+            }
             case Shot.ActorThreeQuarter: {
                // front three-quarter hero shot: in front of and beside the shooter, near chest/face height,
                // looking slightly up, drifting slowly round and in
