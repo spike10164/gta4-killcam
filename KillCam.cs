@@ -412,10 +412,16 @@ namespace KillCam {
          if (shotLengthMs < 300) shotLengthMs = 300;
       }
 
+      private string errorText = "";
+      private int errorTextTick = -100000;
+
       private void KillCam_Draw(object sender, GraphicsEventArgs e) {
-         if (!debug || state != CamState.Playing) return;
+         if (!debug) return;
          try {
-            e.Graphics.DrawText("KillCam shot: " + shot.ToString(), 20.0f, 20.0f);
+            if (state == CamState.Playing) e.Graphics.DrawText("KillCam shot: " + shot.ToString(), 20.0f, 20.0f);
+            if (errorText.Length > 0 && Environment.TickCount - errorTextTick < 15000) {
+               e.Graphics.DrawText(errorText, 20.0f, 45.0f, System.Drawing.Color.Red);
+            }
          } catch (Exception) { }
       }
 
@@ -451,6 +457,12 @@ namespace KillCam {
                Game.Console.Print("KillCam error: " + ex.Message);
             }
             LogError(ex);
+            if (debug) {
+               string where = (ex.StackTrace == null) ? "" : ex.StackTrace;
+               int li = where.IndexOf("at ");
+               errorText = "KillCam ERROR: " + ex.Message + " " + (li >= 0 ? where.Substring(li, Math.Min(120, where.Length - li)).Replace("\r", " ").Replace("\n", " ") : "");
+               errorTextTick = Environment.TickCount;
+            }
             StopCamera();
             // hand the view back to the game even if the camera object was lost
             try { GTA.Native.Function.Call("ACTIVATE_SCRIPTED_CAMS", 0, 0); } catch (Exception) { }
