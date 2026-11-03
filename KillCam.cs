@@ -660,6 +660,11 @@ namespace KillCam {
                   if (slowNow < 0.02f) slowNow = 0.02f;
                }
             }
+            // killing from a car: world crawls so the player can still steer clear of obstacles afterwards
+            if (actorInCar) {
+               slowNow *= 0.4f;
+               if (slowNow < 0.02f) slowNow = 0.02f;
+            }
             Debug("tier " + tier.ToString());
          }
          if (busted) activeShotMs = Math.Max(shotLengthMs, deathHoldMs / bustedCuts);
@@ -925,7 +930,7 @@ namespace KillCam {
          Shot[] options;
          if (actorInCar) {
             // the windscreen and car body make face and profile shots useless
-            options = new Shot[] { Shot.ActorWide, Shot.ActorOrbit, Shot.ActorCrane, Shot.CarSide, Shot.CarLowFront };
+            options = new Shot[] { Shot.ActorWide, Shot.ActorWide, Shot.ActorOrbit, Shot.ActorCrane, Shot.CarSide, Shot.CarSide, Shot.CarSide, Shot.CarLowFront, Shot.CarLowFront };
          } else if (interior) {
             options = new Shot[] { Shot.ActorFace, Shot.ActorProfile, Shot.ActorLowAngle, Shot.ActorDolly, Shot.ActorOrbit, Shot.ActorThreeQuarter, Shot.ActorThreeQuarter,
                Shot.ActorCloseQuarter, Shot.ActorGunSide, Shot.ActorRearQuarter };
@@ -940,7 +945,7 @@ namespace KillCam {
 
       private Shot RandomVictimShot(Shot previous) {
          // sometimes cut to the player mid-sequence (not in a death cam, where the actor is the killer)
-         if (!deathMode && rng.Next(100) < 35) {
+         if (!deathMode && rng.Next(100) < (actorInCar ? 60 : 35)) {
             Shot a = RandomActorShot();
             if (a != previous && a != Shot.ActorFace) return a;
          }
@@ -976,7 +981,7 @@ namespace KillCam {
                case 6: W(Shot.TwoShot, 1); if (!interior) { W(Shot.HighCrane, 3); W(Shot.Flyby, 3); W(Shot.TopDown, 2); W(Shot.ZoomPull, 2); } break;
             }
             if (matchKill && behindKill) { W(Shot.LowFront, 3); W(Shot.DollyIn, 3); W(Shot.GroundClose, 2); }
-            if (actorInCar) { W(Shot.CarSide, 4); W(Shot.CarLowFront, 3); }
+            if (actorInCar) { W(Shot.CarSide, 6); W(Shot.CarLowFront, 5); W(Shot.TwoShot, 6); }
             if (victimInCar && !interior) { W(Shot.Flyby, 2); W(Shot.HighCrane, 2); W(Shot.SideTrack, 2); }
          }
          Shot pick = previous;
