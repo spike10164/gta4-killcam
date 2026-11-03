@@ -113,7 +113,6 @@ namespace KillCam {
       private int lastErrorTick = -100000;
       private int lastPedScanTick = 0;
       private bool situationShots = true;
-      private bool weaponPacing = true;
       private int weaponClass = 0; // 0 none, 1 melee, 2 handgun, 3 smg/rifle, 4 shotgun, 5 sniper, 6 explosive
       private float killDist = 0.0f;
       private bool actorInCar = false;
@@ -175,6 +174,7 @@ namespace KillCam {
          LoadSettings();
          this.Interval = 100;
          this.Tick += new EventHandler(this.KillCam_Tick);
+         this.PerFrameDrawing += new GraphicsEventHandler(this.KillCam_Draw);
       }
 
       // Creates KillCam.ini next to the script on first launch.
@@ -262,8 +262,6 @@ namespace KillCam {
             "WallClearance=1.3",
             "// Choose shots by the situation: kill distance, weapon, and whether anyone is in a vehicle",
             "SituationShots=true",
-            "// Scale cam length and slow-motion by weapon: sniper/shotgun/explosives longer and slower, melee shorter",
-            "WeaponPacing=true",
             "// Stronger cams for bigger moments: killing the last enemy, or a kill while at low health.",
             "// Each tier adds length and slower motion",
             "IntensityTiers=true",
@@ -365,7 +363,6 @@ namespace KillCam {
          bustedCam = Settings.GetValueBool("BustedCam", "Death", true);
          guaranteeAfterMs = Settings.GetValueInteger("GuaranteeAfterMs", "General", 300000);
          situationShots = Settings.GetValueBool("SituationShots", "Camera", true);
-         weaponPacing = Settings.GetValueBool("WeaponPacing", "Camera", true);
          deathAnyCause = Settings.GetValueBool("DeathCamAnyCause", "Death", true);
          bustedCuts = Settings.GetValueInteger("BustedCuts", "Death", 2);
          if (bustedCuts < 1) bustedCuts = 1;
@@ -407,6 +404,13 @@ namespace KillCam {
          if (slowScale < 0.02f) slowScale = 0.02f;
          if (slowScale > 1.0f) slowScale = 1.0f;
          if (shotLengthMs < 300) shotLengthMs = 300;
+      }
+
+      private void KillCam_Draw(object sender, GraphicsEventArgs e) {
+         if (!debug || state != CamState.Playing) return;
+         try {
+            e.Graphics.DrawText("KillCam shot: " + shot.ToString(), 20.0f, 20.0f);
+         } catch (Exception) { }
       }
 
       private void Debug(string text) {
@@ -614,19 +618,6 @@ namespace KillCam {
          activeDurationMs = death ? deathHoldMs : durationMs;
          effectActiveMs = effectMs;
          float slowNow = death ? deathTimeScale : slowScale;
-         if (!death && weaponPacing) {
-            float dm = 1.0f, sm = 1.0f;
-            if (weaponClass == 1) { dm = 0.85f; sm = 1.5f; }
-            else if (weaponClass == 4) { dm = 1.1f; sm = 0.8f; }
-            else if (weaponClass == 5) { dm = 1.35f; sm = 0.6f; }
-            else if (weaponClass == 6) { dm = 1.25f; sm = 0.8f; }
-            activeDurationMs = (int)(durationMs * dm);
-            activeShotMs = (int)(shotLengthMs * dm);
-            effectActiveMs = (int)(effectMs * dm);
-            slowNow = slowScale * sm;
-            if (slowNow < 0.02f) slowNow = 0.02f;
-            if (slowNow > 1.0f) slowNow = 1.0f;
-         }
          if (!death) {
             if (tiersOn) {
                if (lastEnemyKill) tier++;
