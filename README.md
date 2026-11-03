@@ -50,12 +50,11 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 - `WeaponPacing=true`: sniper/shotgun/explosive kills run longer and slower, melee shorter and faster.
 - New styles: Telephoto, BulletFollow, PullBack, WhipPan, CrashZoom, CarSide, CarLowFront.
 
-## Subtle effects (all in `[Effect]`)
-- `CameraShake` / `ShakeAmount`: faint tremor plus a short kick at the start. Cuts stay hard, with no camera blending.
-- `ImpactFreeze`: brief near-stop on the kill before slow-motion (kill cam only).
-- `SlowRampChancePercent`: sometimes the slow-motion eases in from near-normal speed instead of dropping at once.
+## Slow motion
+- `LastEnemyRamp`: on last-enemy kills the slow-motion eases in and back out. Other cams use a flat slow-motion.
+- Busted cams never apply a screen effect.
 
 ## Pacing and intensity
-- `IntensityTiers`: last enemy, a 3+ kill streak, or a kill at low health each add a tier (longer, slower, more shake).
+- `IntensityTiers`: last enemy or a kill at low health each add a tier (longer, slower).
 - `FinalHoldMs`: holds the last shot of kill cams.
 - `MatchKillDirection`: kills from behind start on the victim's face side.

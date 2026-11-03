@@ -68,7 +68,7 @@ namespace KillCam {
       private int durationMs = 7000;
       private int shotLengthMs = 3500;
       private int endOnPlayerPercent = 60;
-      private float slowScale = 0.1f;
+      private float slowScale = 0.05f;
       private float orbitRadius = 1.9f;
       private float orbitHeight = 0.5f;
       private float orbitSpeedDeg = 12.0f; // degrees per real second
@@ -94,10 +94,6 @@ namespace KillCam {
       private bool bustedMode = false;
       private bool tiersOn = true;
       private int tier = 0;
-      private float shakeMul = 1.0f;
-      private int streakCount = 0;
-      private int lastStreakTick = -100000;
-      private int streakWindowMs = 15000;
       private bool lastEnemyKill = false;
       private int finalHoldMs = 1200;
       private bool finalShotStarted = false;
@@ -105,17 +101,10 @@ namespace KillCam {
       private bool behindKill = false;
       private bool frontKnown = false;
       private float frontAngle = 0.0f;
-      private bool shakeOn = true;
-      private float shakeAmount = 1.0f;
-      private bool freezeOn = true;
-      private int freezeMs = 200;
-      private float freezeScale = 0.02f;
-      private int rampChance = 35;
-      private int rampMs = 1500;
       private float rampFrom = 0.6f;
-      private float baseScale = 0.1f;
+      private bool lastEnemyRamp = true;
+      private float baseScale = 0.05f;
       private bool rampActive = false;
-      private bool freezeActive = false;
       private float lastSetScale = -1.0f;
       private bool madeInvincible = false;
       private bool timeScaleSet = false;
@@ -140,7 +129,7 @@ namespace KillCam {
       private bool bustedCam = true;
       private bool bustedHandled = false;
       private int deathHoldMs = 30000;
-      private float deathTimeScale = 0.05f;
+      private float deathTimeScale = 0.02f;
       private bool forceAim = false;
       private int activeDurationMs = 7000;
 
@@ -257,8 +246,8 @@ namespace KillCam {
             "ShotLengthMs=3500",
             "// Chance (0-100) that the last shot is on the player (face or wide shot)",
             "EndOnPlayerPercent=60",
-            "// Game speed during the cam (0.05 - 1.0). Lower = slower",
-            "SlowMotionScale=0.1",
+            "// Game speed during the cam (0.02 - 1.0). Lower = slower",
+            "SlowMotionScale=0.05",
             "// Orbit shot distance from the dead ped, metres",
             "OrbitRadius=1.9",
             "// Orbit shot height, metres",
@@ -271,10 +260,9 @@ namespace KillCam {
             "SituationShots=true",
             "// Scale cam length and slow-motion by weapon: sniper/shotgun/explosives longer and slower, melee shorter",
             "WeaponPacing=true",
-            "// Stronger cams for bigger moments: last enemy, a kill streak (3+ kills within StreakWindowMs),",
-            "// or a kill while at low health. Each tier adds length, slower motion and more shake",
+            "// Stronger cams for bigger moments: killing the last enemy, or a kill while at low health.",
+            "// Each tier adds length and slower motion",
             "IntensityTiers=true",
-            "StreakWindowMs=15000",
             "// Extra time (ms) the final shot is held so the moment lands. Kill cams only",
             "FinalHoldMs=1200",
             "// Kills from behind start on the victim's face side so you see the reaction",
@@ -309,7 +297,7 @@ namespace KillCam {
             "// How long (ms) the death/busted cam is held before the game is allowed to respawn you. Jump skips it",
             "HoldMs=30000",
             "// Game speed while holding (0.01 - 1.0). Very low speed stretches the game's own respawn timers",
-            "HoldTimeScale=0.05",
+            "HoldTimeScale=0.02",
             "",
             "[Light]",
             "// Soft light on the player's face during the face close-up",
@@ -320,17 +308,8 @@ namespace KillCam {
             "[Effect]",
             "// How long the screen effect stays on (ms)",
             "EffectMs=7000",
-            "// Subtle camera shake: a faint constant tremor plus a short kick when the cam starts",
-            "CameraShake=true",
-            "// Shake strength multiplier (0 - 4). 1 = subtle",
-            "ShakeAmount=1.0",
-            "// Impact freeze: the game almost stops for a moment on the kill before the slow-motion starts (kill cam only)",
-            "ImpactFreeze=true",
-            "ImpactFreezeMs=200",
-            "// Game speed during the freeze (0.01 - 1.0)",
-            "ImpactFreezeScale=0.02",
-            "// Chance (0-100) that the slow-motion eases in: starts near normal speed and drops to full slow-motion",
-            "SlowRampChancePercent=35",
+            "// On a last-enemy kill the slow-motion eases in from near-normal speed and eases back out at the end",
+            "LastEnemyRamp=true",
             "SlowRampMs=1500",
             "// Starting game speed of the ramp (0.1 - 1.0)",
             "SlowRampFrom=0.6",
@@ -372,7 +351,7 @@ namespace KillCam {
          durationMs = Settings.GetValueInteger("DurationMs", "Camera", 7000);
          shotLengthMs = Settings.GetValueInteger("ShotLengthMs", "Camera", 3500);
          endOnPlayerPercent = Settings.GetValueInteger("EndOnPlayerPercent", "Camera", 60);
-         slowScale = Settings.GetValueFloat("SlowMotionScale", "Camera", 0.1f);
+         slowScale = Settings.GetValueFloat("SlowMotionScale", "Camera", 0.05f);
          orbitRadius = Settings.GetValueFloat("OrbitRadius", "Camera", 1.9f);
          orbitHeight = Settings.GetValueFloat("OrbitHeight", "Camera", 0.5f);
          orbitSpeedDeg = Settings.GetValueFloat("OrbitSpeedDegPerSec", "Camera", 12.0f);
@@ -387,7 +366,7 @@ namespace KillCam {
          bustedCuts = Settings.GetValueInteger("BustedCuts", "Death", 2);
          if (bustedCuts < 1) bustedCuts = 1;
          deathHoldMs = Settings.GetValueInteger("HoldMs", "Death", 30000);
-         deathTimeScale = Settings.GetValueFloat("HoldTimeScale", "Death", 0.05f);
+         deathTimeScale = Settings.GetValueFloat("HoldTimeScale", "Death", 0.02f);
          forceAim = Settings.GetValueBool("ForceAim", "Player", false);
          if (deathTimeScale < 0.01f) deathTimeScale = 0.01f;
          if (deathTimeScale > 1.0f) deathTimeScale = 1.0f;
@@ -404,19 +383,9 @@ namespace KillCam {
          if (interiorScale > 1.0f) interiorScale = 1.0f;
          effectMs = Settings.GetValueInteger("EffectMs", "Effect", 7000);
          tiersOn = Settings.GetValueBool("IntensityTiers", "Camera", true);
-         streakWindowMs = Settings.GetValueInteger("StreakWindowMs", "Camera", 15000);
          finalHoldMs = Settings.GetValueInteger("FinalHoldMs", "Camera", 1200);
          matchKill = Settings.GetValueBool("MatchKillDirection", "Camera", true);
-         shakeOn = Settings.GetValueBool("CameraShake", "Effect", true);
-         shakeAmount = Settings.GetValueFloat("ShakeAmount", "Effect", 1.0f);
-         if (shakeAmount < 0.0f) shakeAmount = 0.0f;
-         if (shakeAmount > 4.0f) shakeAmount = 4.0f;
-         freezeOn = Settings.GetValueBool("ImpactFreeze", "Effect", true);
-         freezeMs = Settings.GetValueInteger("ImpactFreezeMs", "Effect", 200);
-         freezeScale = Settings.GetValueFloat("ImpactFreezeScale", "Effect", 0.02f);
-         if (freezeScale < 0.01f) freezeScale = 0.01f;
-         if (freezeScale > 1.0f) freezeScale = 1.0f;
-         rampChance = Settings.GetValueInteger("SlowRampChancePercent", "Effect", 35);
+         lastEnemyRamp = Settings.GetValueBool("LastEnemyRamp", "Effect", true);
          rampMs = Settings.GetValueInteger("SlowRampMs", "Effect", 1500);
          rampFrom = Settings.GetValueFloat("SlowRampFrom", "Effect", 0.6f);
          if (rampFrom < 0.1f) rampFrom = 0.1f;
@@ -432,7 +401,7 @@ namespace KillCam {
             timecycles = new string[0];
          }
 
-         if (slowScale < 0.05f) slowScale = 0.05f;
+         if (slowScale < 0.02f) slowScale = 0.02f;
          if (slowScale > 1.0f) slowScale = 1.0f;
          if (shotLengthMs < 300) shotLengthMs = 300;
       }
@@ -471,12 +440,18 @@ namespace KillCam {
          return false;
       }
 
+      // The last enemy check uses a fresh ped query (not the cached list, which refreshes twice a
+      // second), so peds that just arrived are counted. Another ped is an enemy if it is alive,
+      // within ScanRadius, and either in combat or already hurt by the player.
       private bool IsOtherEnemyAlive(Ped player, Ped killed) {
-         for (int i = 0; i < tracked.Count; i++) {
-            Ped p = tracked[i].Ped;
+         Ped[] near = World.GetPeds(player.Position, scanRadius);
+         for (int i = 0; i < near.Length; i++) {
+            Ped p = near[i];
             if (p == null || !p.Exists() || p.isDead || p.Equals(player) || p.Equals(killed)) continue;
-            // an enemy is anyone still fighting, or anyone we already hurt
-            if (p.isInCombat || p.HasBeenDamagedBy(player)) return true;
+            if (p.isInCombat || p.HasBeenDamagedBy(player)) {
+               Debug("other enemy alive: dist " + p.Position.DistanceTo(player.Position).ToString("0.0") + ", combat " + p.isInCombat.ToString() + ", health " + p.Health.ToString());
+               return true;
+            }
          }
          return false;
       }
@@ -525,11 +500,6 @@ namespace KillCam {
                // a big final drop (or a recent big hit) is a kill; slow bleeding is not
                bool direct = (t.Health >= hitDropThreshold) || (now - t.LastHitTick <= killWindowMs);
                Debug("ped died, by player: " + byPlayer.ToString() + ", direct: " + direct.ToString());
-               if (byPlayer && direct) {
-                  if (now - lastStreakTick > streakWindowMs) streakCount = 0;
-                  streakCount++;
-                  lastStreakTick = now;
-               }
                if (byPlayer && direct && killed == null) killed = p;
             } else if (p.Position.DistanceTo(player.Position) > scanRadius * 1.5f) {
                tracked.RemoveAt(i);
@@ -565,6 +535,7 @@ namespace KillCam {
          bool otherAlive = IsOtherEnemyAlive(player, killed);
          if (lastEnemyOnly && otherAlive) { Debug("skipped: other enemy alive"); return; }
          lastEnemyKill = !otherAlive;
+         Debug("last enemy: " + lastEnemyKill.ToString());
          if (IsOverdue()) {
             Debug("kill cam overdue, guaranteed");
          } else if (rng.Next(100) >= chancePercent) { Debug("skipped: chance roll"); return; }
@@ -618,7 +589,6 @@ namespace KillCam {
       private void BeginCamera(Ped focus, Ped actingPed, bool death, bool busted) {
          bustedMode = busted;
          tier = 0;
-         shakeMul = 1.0f;
          finalShotStarted = false;
          deathStartPos = focus.Position;
          interior = false;
@@ -648,24 +618,22 @@ namespace KillCam {
             activeShotMs = (int)(shotLengthMs * dm);
             effectActiveMs = (int)(effectMs * dm);
             slowNow = slowScale * sm;
-            if (slowNow < 0.05f) slowNow = 0.05f;
+            if (slowNow < 0.02f) slowNow = 0.02f;
             if (slowNow > 1.0f) slowNow = 1.0f;
          }
          if (!death) {
             if (tiersOn) {
                if (lastEnemyKill) tier++;
-               if (streakCount >= 3 && Environment.TickCount - lastStreakTick <= streakWindowMs) tier++;
                if (actor != null && actor.Exists() && actor.Health <= 30) tier++;
                if (tier > 0) {
                   float tm = 1.0f + 0.15f * tier;
                   activeDurationMs = (int)(activeDurationMs * tm);
                   effectActiveMs = (int)(effectActiveMs * tm);
                   slowNow *= (1.0f - 0.12f * tier);
-                  if (slowNow < 0.05f) slowNow = 0.05f;
-                  shakeMul = 1.0f + 0.4f * tier;
+                  if (slowNow < 0.02f) slowNow = 0.02f;
                }
             }
-            Debug("tier " + tier.ToString() + ", streak " + streakCount.ToString());
+            Debug("tier " + tier.ToString());
          }
          if (busted) activeShotMs = Math.Max(shotLengthMs, deathHoldMs / bustedCuts);
          cam = new Camera();
@@ -679,10 +647,8 @@ namespace KillCam {
          cam.Activate();
 
          baseScale = slowNow;
-         freezeActive = !death && freezeOn && freezeMs > 0;
-         rampActive = !death && rampChance > 0 && rampMs > 0 && rng.Next(100) < rampChance;
+         rampActive = !death && lastEnemyRamp && lastEnemyKill && rampMs > 0;
          lastSetScale = -1.0f;
-         startTickRamp = 0;
          ApplyTimeScale(now);
          timeScaleSet = true;
          if (!death) {
@@ -699,7 +665,8 @@ namespace KillCam {
          }
          // the skip key must be released once before it counts, so a held sprint does not skip at once
          skipArmed = !SkipPressed();
-         StartEffect();
+         // no screen effect at all on the busted cam
+         if (!busted) StartEffect();
 
          state = CamState.Playing;
          this.Interval = 0;
@@ -712,27 +679,27 @@ namespace KillCam {
          Game.TimeScale = v;
       }
 
-      // Time scale over the cam's real-time clock: optional impact freeze, then either a flat
-      // slow-motion or an ease-in from near-normal speed down to it.
+      // Time scale over the cam's real-time clock. Last-enemy kills ease in from near-normal speed
+      // and ease back out over the final SlowRampMs; every other cam is a flat slow-motion.
       private void ApplyTimeScale(int now) {
-         int el = now - startTick;
-         if (freezeActive) {
-            if (el < freezeMs) { SetScale(freezeScale); return; }
-            freezeActive = false;
-            if (rampActive) startTickRamp = now;
-         }
          if (rampActive) {
-            if (startTickRamp == 0) startTickRamp = startTick;
-            float t = (now - startTickRamp) / (float)rampMs;
-            if (t >= 1.0f) { rampActive = false; SetScale(baseScale); return; }
-            float e = t * t * (3.0f - 2.0f * t);
-            SetScale(rampFrom + (baseScale - rampFrom) * e);
-            return;
+            float tin = (now - startTick) / (float)rampMs;
+            float remaining = activeDurationMs - (now - startTick);
+            float tout = 1.0f - remaining / (float)rampMs;
+            if (tin < 1.0f) {
+               float e = tin * tin * (3.0f - 2.0f * tin);
+               SetScale(rampFrom + (baseScale - rampFrom) * e);
+               return;
+            }
+            if (tout > 0.0f) {
+               if (tout > 1.0f) tout = 1.0f;
+               float e2 = tout * tout * (3.0f - 2.0f * tout);
+               SetScale(baseScale + (1.0f - baseScale) * e2);
+               return;
+            }
          }
          SetScale(baseScale);
       }
-
-      private int startTickRamp = 0;
 
       // works out weapon class, kill distance and vehicle use for the shot weighting
       private void ReadSituation(bool death) {
@@ -1272,18 +1239,6 @@ namespace KillCam {
          } else if (faceLightObj != null && faceLightObj.Enabled) {
             faceLightObj.Enabled = false;
          }
-         if (shakeOn && shakeAmount > 0.0f) {
-            // faint tremor, plus a short decaying kick right after the cam starts
-            float rt = Environment.TickCount / 1000.0f;
-            float since = (Environment.TickCount - startTick) / 1000.0f;
-            float amp = 0.004f;
-            if (since < 0.6f) amp += 0.03f * (1.0f - since / 0.6f);
-            amp *= shakeAmount * shakeMul;
-            pos = new Vector3(
-               pos.X + (float)(Math.Sin(rt * 23.0) + Math.Sin(rt * 37.0)) * 0.5f * amp,
-               pos.Y + (float)(Math.Sin(rt * 29.0) + Math.Sin(rt * 41.0)) * 0.5f * amp,
-               pos.Z + (float)(Math.Sin(rt * 31.0) + Math.Sin(rt * 17.0)) * 0.5f * amp);
-         }
          cam.Position = pos;
          cam.LookAt(target);
       }
@@ -1315,7 +1270,12 @@ namespace KillCam {
          }
 
          if (effectOn && now - startTick >= effectActiveMs) StopEffect();
-         if (!deathMode) ApplyTimeScale(now);
+         if (!deathMode) {
+            ApplyTimeScale(now);
+         } else if (timeScaleSet) {
+            // the game's own wasted/busted handling can reset the time scale, so keep forcing it
+            Game.TimeScale = deathTimeScale;
+         }
 
          if (!finalShotStarted && now - shotStartTick >= activeShotMs) {
             ChooseShot(false);
