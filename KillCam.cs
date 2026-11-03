@@ -915,7 +915,27 @@ namespace KillCam {
          Debug("situation: explosive " + explosive.ToString() + ", dist " + killDist.ToString("0.0") + ", actorCar " + actorInCar.ToString() + ", victimCar " + victimInCar.ToString());
       }
 
+      private static readonly Shot[] quarterShots = new Shot[] {
+         Shot.ActorThreeQuarter, Shot.ActorCloseQuarter, Shot.ActorHeroLow, Shot.ActorGunSide, Shot.ActorLongQuarter,
+         Shot.ActorRearQuarter, Shot.ActorDutchQuarter, Shot.ActorSweepQuarter, Shot.ActorLowSide, Shot.ActorRiseQuarter
+      };
+
+      // in a death cam the quarter shots frame the dead player instead of the killer
+      private bool OnVictim(Shot sh) {
+         return deathMode && !bustedMode && Array.IndexOf(quarterShots, sh) >= 0;
+      }
+
+      private Shot RandomDeathQuarter(Shot previous) {
+         Shot pick = quarterShots[rng.Next(quarterShots.Length)];
+         for (int tries = 0; tries < 8; tries++) {
+            pick = quarterShots[rng.Next(quarterShots.Length)];
+            if (!IsDisabled(pick) && !BreaksSequence(pick, previous, tries)) return pick;
+         }
+         return IsDisabled(pick) ? Shot.ActorThreeQuarter : pick;
+      }
+
       private Vector3 ActorPos() {
+         if (OnVictim(shot)) return lastVictimPos;
          if (actor != null && actor.Exists()) lastActorPos = actor.Position;
          return lastActorPos;
       }
@@ -929,6 +949,7 @@ namespace KillCam {
       // the actor's facing as a world angle (radians), matching the Offset() convention
       private float ActorFacing() {
          float h = (actor != null && actor.Exists()) ? actor.Heading : 0.0f;
+         if (OnVictim(shot) && victim != null && victim.Exists()) h = victim.Heading;
          return h * (float)Math.PI / 180.0f + (float)Math.PI / 2.0f;
       }
 
@@ -1031,8 +1052,10 @@ namespace KillCam {
             finalShotChosen = true;
             holdFinal = !deathMode && !bustedMode && finalHoldMs > 0;
             if (!deathMode && rng.Next(100) < endOnPlayerPercent) {
-               // in a death cam the actor is the killer, so never push in on their face
                next = RandomActorShot(shot);
+            } else if (deathMode && !bustedMode) {
+               // the death cam always ends on the player
+               next = RandomDeathQuarter(shot);
             } else {
                next = RandomVictimShot(shot);
             }
@@ -1196,6 +1219,9 @@ namespace KillCam {
                Shot a = RandomActorShot(previous);
                if (a != Shot.ActorFace) return a;
             }
+         }
+         if (deathMode && !bustedMode && Array.IndexOf(quarterShots, previous) < 0 && rng.Next(100) < 45) {
+            return RandomDeathQuarter(previous);
          }
          return PickVictimShot(previous);
       }
