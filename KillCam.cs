@@ -64,6 +64,7 @@ namespace KillCam {
       private int chancePercent = 20;
       private int cooldownMs = 45000;
       private bool lastEnemyOnly = true;
+      private bool alwaysLastEnemy = false;
       private float scanRadius = 40.0f;
       private int durationMs = 7000;
       private int shotLengthMs = 3500;
@@ -227,6 +228,8 @@ namespace KillCam {
             "CooldownMs=45000",
             "// true = only the last remaining enemy triggers it",
             "LastEnemyOnly=true",
+            "// true = killing the last enemy always plays a kill cam (ignores the chance roll and cooldown)",
+            "AlwaysLastEnemyCam=false",
             "// Radius (metres) around the player that is watched for kills",
             "ScanRadius=40",
             "// If no kill cam has played on a ped for this long (ms), the next qualifying kill skips the chance roll",
@@ -346,6 +349,7 @@ namespace KillCam {
          chancePercent = Settings.GetValueInteger("ChancePercent", "General", 20);
          cooldownMs = Settings.GetValueInteger("CooldownMs", "General", 45000);
          lastEnemyOnly = Settings.GetValueBool("LastEnemyOnly", "General", true);
+         alwaysLastEnemy = Settings.GetValueBool("AlwaysLastEnemyCam", "General", false);
          scanRadius = Settings.GetValueFloat("ScanRadius", "General", 40.0f);
          debug = Settings.GetValueBool("Debug", "General", false);
          durationMs = Settings.GetValueInteger("DurationMs", "Camera", 7000);
@@ -531,12 +535,15 @@ namespace KillCam {
       }
 
       private void TryStartCamera(Ped player, Ped killed) {
-         if (Environment.TickCount - lastEndTick < cooldownMs) { Debug("skipped: cooldown"); return; }
          bool otherAlive = IsOtherEnemyAlive(player, killed);
+         bool forced = alwaysLastEnemy && !otherAlive;
+         if (!forced && Environment.TickCount - lastEndTick < cooldownMs) { Debug("skipped: cooldown"); return; }
          if (lastEnemyOnly && otherAlive) { Debug("skipped: other enemy alive"); return; }
          lastEnemyKill = !otherAlive;
          Debug("last enemy: " + lastEnemyKill.ToString());
-         if (IsOverdue()) {
+         if (forced) {
+            Debug("last enemy cam forced");
+         } else if (IsOverdue()) {
             Debug("kill cam overdue, guaranteed");
          } else if (rng.Next(100) >= chancePercent) { Debug("skipped: chance roll"); return; }
 
