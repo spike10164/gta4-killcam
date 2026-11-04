@@ -61,3 +61,9 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 - `IntensityTiers`: last enemy or a kill at low health each add a tier (longer, slower).
 - `FinalHoldMs`: holds the last shot of kill cams.
 - `MatchKillDirection`: kills from behind start on the victim's face side.
+
+## More situations
+- **Busted cam:** uses wide shots, two-shots and hero quarter angles on the arresting ped, and always ends on a raised, pulled-back quarter angle on the player.
+- **Melee kills** (fists, bat, pool cue, knife within 3.5 m) favour `MeleeBehind` (raised, partly behind the attacker looking at the victim) and `MeleeTwoShot` (high two-shot).
+- **Vehicle kills** also use `CarQuarter` and `CarRearQuarter`.
+- **Ejection:** `EjectCam=true` plays a short cam (max 5 s, game speed at least 0.15) when the player is thrown out of a vehicle moving faster than `EjectMinSpeed` m/s. `EjectCamChancePercent` sets how often. It uses the normal cooldown.
