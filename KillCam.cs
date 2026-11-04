@@ -673,7 +673,11 @@ namespace KillCam {
          }
       }
 
-      // a fast vehicle the player was just in, followed by the player being thrown clear, starts a short cam
+      private int peakSpeedTick = 0;
+      private int ejectWatchUntil = 0;
+
+      // a fast vehicle the player was just in, followed by the player being thrown clear, starts a short cam.
+      // The peak speed of the last 1.5 s is used, because a crash has already stopped the car when the player leaves it
       private void CheckEject(Ped player) {
          int now = Environment.TickCount;
          bool inVeh = false;
@@ -687,18 +691,27 @@ namespace KillCam {
          } catch (Exception) { }
          if (inVeh) {
             wasInVehicle = true;
-            lastVehSpeed = spd;
+            if (spd >= lastVehSpeed || now - peakSpeedTick > 1500) {
+               lastVehSpeed = spd;
+               peakSpeedTick = now;
+            }
             lastVehTick = now;
             return;
          }
-         if (!wasInVehicle) return;
-         wasInVehicle = false;
+         if (wasInVehicle) {
+            wasInVehicle = false;
+            // keep watching for a moment: the ragdoll can start a few frames after the player leaves the seat
+            ejectWatchUntil = now + 1500;
+         }
+         if (now > ejectWatchUntil) return;
          bool thrown = false;
          try { thrown = player.isRagdoll || player.isInAir; } catch (Exception) { }
-         if (!thrown || now - lastVehTick > 700 || lastVehSpeed < ejectMinSpeed) return;
+         if (!thrown) return;
+         ejectWatchUntil = 0;
+         if (now - peakSpeedTick > 2500 || lastVehSpeed < ejectMinSpeed) return;
          if (state != CamState.Idle || now - lastEndTick < cooldownMs) { Debug("eject cam skipped: busy or cooldown"); return; }
          if (rng.Next(100) >= ejectChance) return;
-         Debug("ejected from vehicle at " + lastVehSpeed.ToString("0.0"));
+         Debug("ejected from vehicle, peak speed " + lastVehSpeed.ToString("0.0"));
          lastEnemyKill = false;
          ejectMode = true;
          BeginCamera(player, null, false, false);
