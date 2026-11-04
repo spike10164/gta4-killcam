@@ -920,9 +920,12 @@ namespace KillCam {
          Shot.ActorRearQuarter, Shot.ActorDutchQuarter, Shot.ActorSweepQuarter, Shot.ActorLowSide, Shot.ActorRiseQuarter
       };
 
-      // in a death cam the quarter shots frame the dead player instead of the killer
+      // in a death cam a quarter shot frames either the killer or, when victimQuarter is set, the dead player
+      private bool victimQuarter = false;
+      private bool pendingVictimQuarter = false;
+
       private bool OnVictim(Shot sh) {
-         return deathMode && !bustedMode && Array.IndexOf(quarterShots, sh) >= 0;
+         return victimQuarter && deathMode && !bustedMode && Array.IndexOf(quarterShots, sh) >= 0;
       }
 
       private Shot RandomDeathQuarter(Shot previous) {
@@ -958,6 +961,12 @@ namespace KillCam {
       // lowers the aim point below the head.
       private void ActorQuarter(float yaw, float dist, float height, float lookDrop, float fov, out Vector3 pos, out Vector3 target) {
          Vector3 head = ActorHead();
+         if (OnVictim(shot)) {
+            // the dead player is framed higher and further back, looking down at the body
+            dist *= 1.35f;
+            height += 0.9f;
+            lookDrop += 0.35f;
+         }
          pos = ClearPosition(head, ActorFacing() + yaw, dist, height);
          target = new Vector3(head.X, head.Y, head.Z - lookDrop);
          cam.FOV = fov;
@@ -1040,6 +1049,7 @@ namespace KillCam {
       // picks the next shot and sets up its starting camera state
       private void ChooseShot(bool first) {
          Shot next = Shot.OrbitVictim;
+         pendingVictimQuarter = false;
          int elapsed = Environment.TickCount - startTick;
          bool isFinal = elapsed + baseShotMs >= activeDurationMs;
          bool opener = first && lastEnemyKill && !deathMode && openerMs > 0;
@@ -1056,6 +1066,7 @@ namespace KillCam {
             } else if (deathMode && !bustedMode) {
                // the death cam always ends on the player
                next = RandomDeathQuarter(shot);
+               pendingVictimQuarter = true;
             } else {
                next = RandomVictimShot(shot);
             }
@@ -1080,6 +1091,7 @@ namespace KillCam {
          }
 
          shot = next;
+         victimQuarter = pendingVictimQuarter;
          shotStartTick = Environment.TickCount;
          cutIndex++;
          // the game can drop the modifier on its own, so it is re-applied on every cut
@@ -1220,8 +1232,16 @@ namespace KillCam {
                if (a != Shot.ActorFace) return a;
             }
          }
-         if (deathMode && !bustedMode && Array.IndexOf(quarterShots, previous) < 0 && rng.Next(100) < 45) {
-            return RandomDeathQuarter(previous);
+         if (deathMode && !bustedMode && Array.IndexOf(quarterShots, previous) < 0) {
+            int roll = rng.Next(100);
+            if (roll < 35 && !noActor) {
+               // the killer gets the same hero angles the player gets in a kill cam
+               return RandomDeathQuarter(previous);
+            }
+            if (roll < 60) {
+               pendingVictimQuarter = true;
+               return RandomDeathQuarter(previous);
+            }
          }
          return PickVictimShot(previous);
       }
