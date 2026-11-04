@@ -7,7 +7,7 @@ Install: install ScriptHookDotNet, copy `KillCam.cs` to `<GTA IV>/scripts/`. `Ki
 - Rare: 40% chance, 45 s cooldown, and only on the **last enemy** (`LastEnemyOnly=true`; an enemy is any nearby ped still in combat or that you hurt).
 - Player is **invincible** during a kill cam (`[Player] Invincible=true`, can be turned off) and turned off afterwards (the API can't read the previous state).
 - Camera cuts every `ShotLengthMs` between random shots: orbit victim, low front, high crane, over-the-shoulder. The final shot is the player (orbit or close-up) with `EndOnPlayerPercent` chance.
-- A **timecycle** effect starts with the first camera and clears at the end of the last one (never on the death or busted cam). `Timecycles` is used by day and `NightTimecycles` at night. If the camera hits geometry it cuts to another shot. The death cam uses the normal shot set, reversed (the dead player is the subject, the killer the actor). `Timecycles` is a comma-separated list of modifier names (one picked at random); an unknown name may do nothing, so try others from the game's timecycle modifier files.
+- A **timecycle** effect starts with the first camera and clears at the end of the last one (never on the death or busted cam). If the camera hits geometry it cuts to another shot. The death cam uses the normal shot set, reversed (the dead player is the subject, the killer the actor). `Timecycles` is a comma-separated list of modifier names (one picked at random); an unknown name may do nothing, so try others from the game's timecycle modifier files.
 
 - **Skip** with the Jump button only (Space on keyboard, the Jump button on a controller). Shift does not skip. Hold-release first: a key held when the cam starts doesn't skip.
 - Bleed-outs are ignored: only a sudden health drop (`HitDropThreshold`) within `KillWindowMs` of death counts as a kill.
@@ -67,3 +67,4 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 - **Melee kills** (fists, bat, pool cue, knife within 3.5 m) favour `MeleeBehind` (raised, partly behind the attacker looking at the victim) and `MeleeTwoShot` (high two-shot).
 - **Vehicle kills** also use `CarQuarter` and `CarRearQuarter`.
 - **Ejection:** `EjectCam=true` plays a short cam (max 5 s, game speed at least 0.15) when the player is thrown out of a vehicle moving faster than `EjectMinSpeed` m/s. `EjectCamChancePercent` sets how often. It uses the normal cooldown.
+- **Camera count:** each kill cam plays one to three shots at random (one or two from a car, with shorter shots). `DurationMs` now only applies to the eject cam.

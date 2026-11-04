@@ -87,7 +87,7 @@ namespace KillCam {
       private float orbitRadius = 1.9f;
       private float orbitHeight = 0.5f;
       private float orbitSpeedDeg = 4.0f; // degrees per real second
-      private string[] timecycles = new string[] { "Cinema", "Steel", "Bronze" };
+      private string[] timecycles = new string[] { "Steel", "Cinema", "Eclipse" };
       private bool debug = false;
 
       // a single health drop of at least this much counts as a hit; bleeding drops by 1-2 at a time
@@ -127,7 +127,7 @@ namespace KillCam {
       private bool adaptiveChance = true;
       private List<int> recentKills = new List<int>();
       private List<Shot> disabledShots = new List<Shot>();
-      private string[] nightTimecycles = new string[0];
+      private int camCount = 0;
       private float dayLightScale = 0.6f;
       private bool isNight = false;
       private float lastSetScale = -1.0f;
@@ -285,7 +285,7 @@ namespace KillCam {
             "KillWindowMs=1500",
             "",
             "[Camera]",
-            "// Total length of the cam in real milliseconds",
+            "// Length of the eject cam in real milliseconds (kill cams are one to three shots of ShotLengthMs)",
             "DurationMs=7000",
             "// Length of each shot in milliseconds",
             "ShotLengthMs=3500",
@@ -369,8 +369,7 @@ namespace KillCam {
             "SlowRampMs=1500",
             "// Starting game speed of the ramp (0.1 - 1.0)",
             "SlowRampFrom=0.6",
-            "// Comma separated lists; one is picked at random each time. Timecycles is used by day (and as the fallback),",
-            "// NightTimecycles at night (empty = same as Timecycles). Available names and what they look like:",
+            "// Comma separated list; one is picked at random each time. Available names and what they look like:",
             "//   Steel      cool, desaturated blue-steel grade with strong contrast (moody, thriller look)",
             "//   Cinema     high-contrast filmic grade, slightly teal shadows and warm highlights",
             "//   Eclipse    dark and dramatic, deep red-purple shadows with a dim overall tone",
@@ -393,8 +392,7 @@ namespace KillCam {
             "//   colors     slightly boosted colour saturation",
             "//   death      the game's own wasted/death look: desaturated, dark edges",
             "//   injured    heavy desaturation and blur, like low health",
-            "Timecycles=Cinema,Steel,Bronze",
-            "NightTimecycles=Steel,Eclipse,Noire"
+            "Timecycles=Steel,Cinema,Eclipse"
          };
          File.WriteAllLines(Settings.Filename, lines);
       }
@@ -476,8 +474,7 @@ namespace KillCam {
          if (scanRadius < 5.0f) scanRadius = 5.0f;
 
          // comma separated list; one is picked at random each time
-         timecycles = ParseList(Settings.GetValueString("Timecycles", "Effect", "Cinema,Steel,Bronze"));
-         nightTimecycles = ParseList(Settings.GetValueString("NightTimecycles", "Effect", "Steel,Eclipse,Noire"));
+         timecycles = ParseList(Settings.GetValueString("Timecycles", "Effect", "Steel,Cinema,Eclipse"));
 
          if (slowScale < 0.02f) slowScale = 0.02f;
          if (slowScale > 1.0f) slowScale = 1.0f;
@@ -873,7 +870,7 @@ namespace KillCam {
       private float PlanTiming(bool death, bool busted) {
          tier = 0;
          baseShotMs = shotLengthMs;
-         activeShotMs = shotLengthMs;
+         camCount = 0;
          activeDurationMs = death ? deathHoldMs : (ejectMode ? Math.Min(durationMs, 5000) : durationMs);
          float slow = death ? deathTimeScale : slowScale;
          if (ejectMode && slow < 0.15f) slow = 0.15f;
@@ -883,13 +880,21 @@ namespace KillCam {
                if (explosive) tier++;
                if (actor != null && actor.Exists() && actor.Health <= 30) tier++;
                if (tier > 0) {
-                  activeDurationMs = (int)(activeDurationMs * (1.0f + 0.15f * tier));
+                  baseShotMs = (int)(baseShotMs * (1.0f + 0.15f * tier));
                   slow *= (1.0f - 0.12f * tier);
                }
             }
             // killing from a car: the world crawls so the player can still steer clear of obstacles afterwards
             if (actorInCar) slow *= 0.4f;
             if (slow < 0.02f) slow = 0.02f;
+            if (!ejectMode) {
+               // a kill cam is one to three shots; from a car it is one or two, and shorter
+               camCount = actorInCar ? 1 + rng.Next(2) : 1 + rng.Next(3);
+               if (actorInCar) baseShotMs = (int)(baseShotMs * 0.75f);
+               // generous estimate; the real end is set when the last shot is chosen
+               activeDurationMs = (int)(camCount * baseShotMs * 1.4f) + finalHoldMs;
+               Debug("cameras " + camCount.ToString());
+            }
             Debug("tier " + tier.ToString());
          }
          if (busted) baseShotMs = Math.Max(shotLengthMs, deathHoldMs / bustedCuts);
@@ -1096,7 +1101,7 @@ namespace KillCam {
       }
 
       private void StartEffect() {
-         string[] list = (isNight && nightTimecycles.Length > 0) ? nightTimecycles : timecycles;
+         string[] list = timecycles;
          if (list.Length == 0) return;
          string name = list[rng.Next(list.Length)];
          if (name.Length == 0) return;
@@ -1123,16 +1128,16 @@ namespace KillCam {
          Shot next = Shot.OrbitVictim;
          pendingVictimQuarter = false;
          int elapsed = Environment.TickCount - startTick;
-         bool isFinal = elapsed + baseShotMs >= activeDurationMs;
-         bool opener = first && lastEnemyKill && !deathMode && openerMs > 0;
+         bool countMode = camCount > 0 && !deathMode && !bustedMode;
+         bool isFinal = countMode ? (cutIndex >= camCount - 1) : (elapsed + baseShotMs >= activeDurationMs);
+         bool becameFinal = isFinal && !finalShotChosen && (!first || countMode);
+         bool opener = first && lastEnemyKill && !deathMode && openerMs > 0 && (!countMode || camCount > 1);
          bool holdFinal = false;
          if (opener) {
             next = RandomOpenerShot();
          } else if (first) {
             next = PickVictimShot(Shot.OrbitVictim);
-         } else if (isFinal && !finalShotChosen) {
-            finalShotChosen = true;
-            holdFinal = !deathMode && !bustedMode && finalHoldMs > 0;
+         } else if (becameFinal) {
             if (!deathMode && !noActor && rng.Next(100) < endOnPlayerPercent) {
                next = RandomActorShot(shot);
             } else if (deathMode && !bustedMode) {
@@ -1145,6 +1150,10 @@ namespace KillCam {
          } else {
             next = RandomVictimShot(shot);
          }
+         if (becameFinal) {
+            finalShotChosen = true;
+            holdFinal = !deathMode && !bustedMode && finalHoldMs > 0;
+         }
          if (ejectMode) next = RandomEjectShot(shot);
          if (bustedMode) next = RandomBustedShot(first ? Shot.OrbitVictim : shot, isFinal);
 
@@ -1155,6 +1164,7 @@ namespace KillCam {
          } else if (perShotLengths && !bustedMode) {
             activeShotMs = Math.Max(300, (int)(baseShotMs * ShotLengthFactor(next)));
          }
+         if (becameFinal && countMode) activeDurationMs = elapsed + activeShotMs;
          if (holdFinal) {
             // hold the last shot a little longer so the moment lands
             activeDurationMs += finalHoldMs;
