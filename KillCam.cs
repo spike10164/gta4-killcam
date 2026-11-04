@@ -827,6 +827,8 @@ namespace KillCam {
          lastVictimPos = victim.Position;
          lastActorPos = noActor ? victim.Position : actor.Position;
          ReadSituation();
+         // the eject cam stays well back from the player
+         if (ejectMode) radiusMul = 1.9f;
 
          float slowNow = PlanTiming(death, busted);
          if (!CreateCamera()) {
@@ -848,7 +850,7 @@ namespace KillCam {
          ChooseShot(true);
          cam.Activate();
          // the screen effect starts with the first camera; it is never used on the death or busted cam
-         if (!death) StartEffect();
+         if (!death && !ejectMode) StartEffect();
 
          baseScale = slowNow;
          rampIn = !death && lastEnemyRamp && lastEnemyKill && rampMs > 0;
@@ -1143,6 +1145,7 @@ namespace KillCam {
          } else {
             next = RandomVictimShot(shot);
          }
+         if (ejectMode) next = RandomEjectShot(shot);
          if (bustedMode) next = RandomBustedShot(first ? Shot.OrbitVictim : shot, isFinal);
 
          // each shot gets its own length: fast moves are short, slow moves are long
@@ -1258,6 +1261,17 @@ namespace KillCam {
          int ps = ShotSize(previous), cs = ShotSize(candidate);
          if (attempt < 5 && ps != 1 && cs == ps) return true;
          return false;
+      }
+
+      // eject cam: steady, non-orbiting shots only
+      private Shot RandomEjectShot(Shot previous) {
+         Shot[] options = new Shot[] { Shot.LowFront, Shot.DollyIn, Shot.PullBack, Shot.SideTrack, Shot.Telephoto, Shot.ZoomPull, Shot.LowRise };
+         Shot pick = options[rng.Next(options.Length)];
+         for (int tries = 0; tries < 8; tries++) {
+            pick = options[rng.Next(options.Length)];
+            if (pick != previous && !IsDisabled(pick)) return pick;
+         }
+         return IsDisabled(pick) ? Shot.PullBack : pick;
       }
 
       // busted: wide and two-shots, quarter angles on the arresting ped, and a raised quarter on the player to finish
