@@ -861,6 +861,7 @@ namespace KillCam {
          }
          // the skip key must be released once before it counts, so a held sprint does not skip at once
          skipArmed = !SkipPressed();
+         notArrestedSince = 0;
          state = CamState.Playing;
          this.Interval = 0;
          Debug(death ? "started (death cam)" : "started");
@@ -1816,6 +1817,7 @@ namespace KillCam {
             if (victim == null || !victim.Exists()) over = true;
             else if (!bustedMode && !victim.isDead) over = true;
             else if (bustedMode && victim.Position.DistanceTo(deathStartPos) > 25.0f) over = true;
+            else if (bustedMode && BrokeFree(now)) over = true;
          } else if (player == null || !player.Exists() || player.isDead) {
             over = true;
          }
@@ -1849,6 +1851,17 @@ namespace KillCam {
             angle += shotDir * orbitSpeedDeg * dt * (float)Math.PI / 180.0f;
          }
          PositionCamera();
+      }
+
+      private int notArrestedSince = 0;
+
+      // true when the arrest has been over for a moment (the player broke free); a short grace period covers flicker
+      private bool BrokeFree(int now) {
+         bool arrested = true;
+         try { arrested = GTA.Native.Function.Call<bool>("IS_PLAYER_BEING_ARRESTED"); } catch (Exception) { }
+         if (arrested) { notArrestedSince = 0; return false; }
+         if (notArrestedSince == 0) notArrestedSince = now;
+         return now - notArrestedSince >= 400;
       }
 
       private int releaseChecks = 0;
