@@ -26,7 +26,7 @@ Not compiled or tested in-game.
 - More shots: dolly-in, side track, top-down roll, low rise, Dutch-angle orbit, zoom pull-out. In the death cam the camera never zooms on the killer's face.
 - `InteriorMode` (`Tight` / `Disabled` / `Normal`) and `InteriorScale` control behaviour indoors.
 - The ini is reloaded automatically when saved during play. It ships with comments describing each timecycle.
-- Delete the old `KillCam.ini` to get the commented defaults.
+- Missing settings are added to an existing `KillCam.ini` when the script loads.
 
 ## Death / busted hold
 - On death or a busted arrest the cam plays on the player and is held up to `HoldMs` (30 s) or until Jump is pressed. The game is slowed to `HoldTimeScale` to stretch the game's own respawn timer. The script does not touch the screen fade; the cam ends when you respawn. Tune `HoldTimeScale`.
@@ -43,7 +43,7 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 ## Death/busted update
 - `DeathCamAnyCause=true` plays the death cam on any death (falls, explosions...), using solo shots when there is no killer.
 - `BustedCuts` (default 2) sets how many cuts the busted cam makes.
-- The screen is forced to stay faded in during the hold to stop the black screen.
+- The script does not force the screen fade during the hold.
 
 ## Situation-aware cams
 - `LongRangeChancePercent` / `LongRangeDistance` and `ExplosionChancePercent` raise the cam chance for far kills and for grenade/molotov/rocket kills. Explosive kills also get a bigger tier (longer, slower) and big, high, wide shots.
@@ -67,8 +67,8 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 - **Melee kills** (fists, bat, pool cue, knife within 3.5 m) favour `MeleeBehind` (raised, partly behind the attacker looking at the victim) and `MeleeTwoShot` (high two-shot).
 - **Vehicle kills** also use `CarQuarter` and `CarRearQuarter`.
 - **Ejection:** `EjectCam=true` plays a short cam (max 5 s, game speed at least 0.15) when the player is thrown out of a vehicle moving faster than `EjectMinSpeed` m/s. `EjectCamChancePercent` sets how often. It uses the normal cooldown.
-- **Camera count:** each kill cam plays one to three shots at random (one or two from a car, with shorter shots). `DurationMs` now only applies to the eject cam.
-- **Car kills** are a single shot of about 1 s (1.8 s when several peds are killed within a couple of seconds) with no end hold. The eject cam sits 2.6 m higher and looks slightly down.
+- **Camera count:** each kill cam plays one to three shots at random; car kills use one short shot. `DurationMs` now only applies to the eject cam.
+- **Car kills** are a single shot of about 1 s with no end hold. The shot lasts 1.8 s if two peds killed in the same scan, within 8 m of each other, have been damaged by the player's vehicle and the player is not shooting. This is a collision heuristic, not proof of one impact. The eject cam sits 2.6 m higher and looks slightly down.
 - **Debug test keys:** with `Debug=true`, `DebugKeyPlayer` (default Numpad 1) plays a random player-only cam and `DebugKeyPair` (default Numpad 2) plays a random killer-vs-victim cam on the nearest ped. They work on foot and in a car and ignore chance and cooldown.
 - More debug keys: `DebugKeyDeath` (Numpad 3), `DebugKeyBusted` (Numpad 4) and `DebugKeyEject` (Numpad 5) play the death, busted and eject cams without the real event. The nearest ped acts as the killer or arresting officer, and the test death/busted cams last at most 9 s (Jump skips).
 
@@ -83,5 +83,12 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 ## More options
 - `Profile` (Custom, Subtle, Cinematic) overrides chance, cooldown, camera count and slow-motion in one go. `MaxCameras` (1-3) sets the most shots a kill cam can have.
 - `GroupWide` frames the shooter, the victim and up to three people within 12 m of the victim.
-- Safety: a kill cam never starts, and stops at once, if the game is paused or fading out, or the player cannot control the character (cutscenes, scripted moments).
+- Safety: cameras stop on pause; regular kill cams also stop on fade-out or loss of player control. Death and busted cameras retain their own end conditions. Ejection cameras do not use the player-control check.
 - With `Debug=true`, `KillCam.log` gets a shot-usage summary every five cams.
+
+## Individual shot testing
+With `Debug=true`, Numpad 6 (`DebugKeyNextShot`) displays and cycles through every shot name; Numpad 7 (`DebugKeyPlayShot`) plays the selected shot. The keys can be changed in the ini. Selected tests ignore `DisabledShots` and normal context filters, but still use framing safeguards. Shots requiring another ped or a vehicle report that requirement if it is missing. Jump skips a test.
+
+Normal shot selection avoids car face close-ups and large outdoor angles in tight interiors. If a camera is too close or appears obstructed, it switches to a wider fallback position; if no candidate is clear, the cam stops. The obstacle check uses ground heights, not a raycast, and cannot reliably detect vertical walls or interior ceilings.
+
+Cleanup restores the view, time scale, light, effect and the ped made invincible when a camera ends, including on errors. The ScriptHookDotNet API used here provides no script-unload event, so a forced script reload during a cam cannot be guaranteed to run cleanup. When debugging, skip the cam before reloading the script.

@@ -147,15 +147,18 @@ namespace KillCam {
       private System.Windows.Forms.Keys keyDeath = System.Windows.Forms.Keys.NumPad3;
       private System.Windows.Forms.Keys keyBusted = System.Windows.Forms.Keys.NumPad4;
       private System.Windows.Forms.Keys keyEject = System.Windows.Forms.Keys.NumPad5;
+      private System.Windows.Forms.Keys keyNextShot = System.Windows.Forms.Keys.NumPad6;
+      private System.Windows.Forms.Keys keyPlayShot = System.Windows.Forms.Keys.NumPad7;
+      private int selectedShotIndex = 0;
+      private bool showShotSelection = false;
       private int curRampMs = 0;
       private int killsThisScan = 0;
-      private int lastPlayerKillTick = -100000;
-      private int prevPlayerKillTick = -100000;
       private bool multiKill = false;
       private float dayLightScale = 0.6f;
       private bool isNight = false;
       private float lastSetScale = -1.0f;
       private bool madeInvincible = false;
+      private Ped invinciblePed = null;
       private bool invincible = true;
       private bool timeScaleSet = false;
       private int lastErrorTick = -100000;
@@ -268,7 +271,7 @@ namespace KillCam {
                ReadSettings();
                Game.Console.Print("KillCam: settings reloaded");
             }
-         } catch (Exception) { }
+         } catch (Exception ex) { LogError(ex); }
       }
 
       private string[] DefaultIniLines() {
@@ -318,6 +321,9 @@ namespace KillCam {
             "DebugKeyDeath=NumPad3",
             "DebugKeyBusted=NumPad4",
             "DebugKeyEject=NumPad5",
+            "// Debug: cycle through all shots, then play the selected shot",
+            "DebugKeyNextShot=NumPad6",
+            "DebugKeyPlayShot=NumPad7",
             "// Favours long lenses, slow pushes and steady framing (western / cinematic style)",
             "CinematicBias=true",
             "// Shot / reverse shot: over-the-shoulder cuts between shooter and victim",
@@ -534,6 +540,8 @@ namespace KillCam {
          keyDeath = ParseKey(Settings.GetValueString("DebugKeyDeath", "General", "NumPad3"), System.Windows.Forms.Keys.NumPad3);
          keyBusted = ParseKey(Settings.GetValueString("DebugKeyBusted", "General", "NumPad4"), System.Windows.Forms.Keys.NumPad4);
          keyEject = ParseKey(Settings.GetValueString("DebugKeyEject", "General", "NumPad5"), System.Windows.Forms.Keys.NumPad5);
+         keyNextShot = ParseKey(Settings.GetValueString("DebugKeyNextShot", "General", "NumPad6"), System.Windows.Forms.Keys.NumPad6);
+         keyPlayShot = ParseKey(Settings.GetValueString("DebugKeyPlayShot", "General", "NumPad7"), System.Windows.Forms.Keys.NumPad7);
          profile = Settings.GetValueString("Profile", "General", "Custom").Trim();
          maxCameras = Settings.GetValueInteger("MaxCameras", "Camera", 3);
          cinematic = Settings.GetValueBool("CinematicBias", "General", true);
@@ -627,11 +635,21 @@ namespace KillCam {
 
       private void KillCam_KeyDown(object sender, GTA.KeyEventArgs e) {
          if (!debug) return;
+         if (state == CamState.Playing) return;
          if (e.Key == keyPlayer) pendingManual = 1;
          else if (e.Key == keyPair) pendingManual = 2;
          else if (e.Key == keyDeath) pendingManual = 3;
          else if (e.Key == keyBusted) pendingManual = 4;
          else if (e.Key == keyEject) pendingManual = 5;
+         else if (e.Key == keyNextShot) {
+            Array shots = Enum.GetValues(typeof(Shot));
+            if (showShotSelection) selectedShotIndex = (selectedShotIndex + 1) % shots.Length;
+            showShotSelection = true;
+            Debug("selected test shot: " + ((Shot)shots.GetValue(selectedShotIndex)).ToString());
+         } else if (e.Key == keyPlayShot) {
+            showShotSelection = true;
+            pendingManual = 6;
+         }
       }
 
       // debug: plays a cam on demand. 1 = player shots only, 2 = killer vs victim shots only,
@@ -651,6 +669,17 @@ namespace KillCam {
             }
          }
          if (other == null && (mode == 2 || mode == 4)) { Debug("manual cam: no ped nearby"); return; }
+         if (mode == 6) {
+            Shot selected = (Shot)Enum.GetValues(typeof(Shot)).GetValue(selectedShotIndex);
+            if (NeedsOtherPed(selected) && other == null) {
+               Game.Console.Print("KillCam: selected shot needs another ped nearby");
+               return;
+            }
+            if (NeedsVehicle(selected) && !player.isInVehicle()) {
+               Game.Console.Print("KillCam: selected shot needs the player in a vehicle");
+               return;
+            }
+         }
          manualMode = mode;
          lastEnemyKill = false;
          multiKill = false;
@@ -706,6 +735,10 @@ namespace KillCam {
          if (!debug) return;
          try {
             if (state == CamState.Playing) e.Graphics.DrawText("KillCam shot: " + shot.ToString(), 20.0f, 20.0f);
+            else if (showShotSelection) {
+               Shot selected = (Shot)Enum.GetValues(typeof(Shot)).GetValue(selectedShotIndex);
+               e.Graphics.DrawText("KillCam test shot: " + selected.ToString(), 20.0f, 20.0f);
+            }
             if (errorText.Length > 0 && Environment.TickCount - errorTextTick < 15000) {
                e.Graphics.DrawText(errorText, 20.0f, 45.0f, System.Drawing.Color.Red);
             }
@@ -731,6 +764,7 @@ namespace KillCam {
 
       private void KillCam_Tick(object sender, EventArgs e) {
          try {
+            CheckIniReload();
             if (!enabled) {
                if (state == CamState.Playing) StopCamera();
                return;
@@ -743,13 +777,12 @@ namespace KillCam {
                   releaseTick = Environment.TickCount;
                   ReleaseView();
                }
-               CheckIniReload();
                if (pendingManual != 0) {
                   int m = pendingManual;
                   pendingManual = 0;
                   if (debug) StartManualCamera(m);
                }
-               ScanForKills();
+               if (state == CamState.Idle) ScanForKills();
             }
          } catch (Exception ex) {
             if (Environment.TickCount - lastErrorTick > 5000) {
@@ -824,9 +857,13 @@ namespace KillCam {
          }
 
          if (ejectCam) CheckEject(player);
+         if (state == CamState.Playing) return;
 
          Ped killed = null;
          killsThisScan = 0;
+         multiKill = false;
+         Ped vehicleVictim = null;
+         Vehicle drivenVehicle = player.isInVehicle() ? player.CurrentVehicle : null;
          int now = Environment.TickCount;
          for (int i = tracked.Count - 1; i >= 0; i--) {
             TrackedPed t = tracked[i];
@@ -836,14 +873,17 @@ namespace KillCam {
             } else if (p.isDead || p.Health <= 0) {
                // a ped in a euphoria ragdoll can have zero health before the game flags it dead
                tracked.RemoveAt(i);
-               bool byPlayer = p.HasBeenDamagedBy(player) || (now - t.LastHitTick <= killWindowMs && player.isShooting);
+               bool byVehicle = drivenVehicle != null && drivenVehicle.Exists() && p.HasBeenDamagedBy(drivenVehicle);
+               bool byPlayer = byVehicle || p.HasBeenDamagedBy(player) || (now - t.LastHitTick <= killWindowMs && player.isShooting);
                // a big final drop (or a recent big hit) is a kill; slow bleeding is not
                bool direct = (t.Health >= hitDropThreshold) || (now - t.LastHitTick <= killWindowMs);
                Debug("ped died, by player: " + byPlayer.ToString() + ", direct: " + direct.ToString());
                if (byPlayer && direct) {
                   killsThisScan++;
-                  prevPlayerKillTick = lastPlayerKillTick;
-                  lastPlayerKillTick = now;
+                  if (byVehicle && !player.isShooting) {
+                     if (vehicleVictim == null) vehicleVictim = p;
+                     else if (p.Position.DistanceTo(vehicleVictim.Position) <= 8.0f) multiKill = true;
+                  }
                   if (killed == null) killed = p;
                }
             } else if (p.Position.DistanceTo(player.Position) > scanRadius * 1.5f) {
@@ -856,7 +896,7 @@ namespace KillCam {
          }
 
          if (killed != null) {
-            multiKill = killsThisScan >= 2 || lastPlayerKillTick - prevPlayerKillTick < 2500;
+            if (multiKill) killed = vehicleVictim;
             TryStartCamera(player, killed);
          }
 
@@ -1034,6 +1074,11 @@ namespace KillCam {
          if (ejectMode) radiusMul = 1.9f;
 
          float slowNow = PlanTiming(death, busted);
+         if (manualMode == 6) {
+            camCount = 1;
+            baseShotMs = shotLengthMs;
+            preroll = false;
+         }
          if (!CreateCamera()) {
             Debug("camera could not be created, skipping");
             victim = null;
@@ -1058,12 +1103,13 @@ namespace KillCam {
          baseScale = slowNow;
          rampIn = !death && lastEnemyRamp && lastEnemyKill && rampMs > 0;
          lastSetScale = -1.0f;
-         ApplyTimeScale(now);
          timeScaleSet = true;
+         ApplyTimeScale(now);
          // the player cannot be hurt during a kill cam (reset in StopCamera; the API cannot read the old state)
          if (!death && invincible && actor != null && actor.Exists()) {
-            actor.Invincible = true;
+            invinciblePed = actor;
             madeInvincible = true;
+            actor.Invincible = true;
          }
          // the skip key must be released once before it counts, so a held sprint does not skip at once
          skipArmed = !SkipPressed();
@@ -1176,7 +1222,6 @@ namespace KillCam {
             int hour = World.CurrentDayTime.Hours;
             isNight = hour >= 20 || hour < 6;
          } catch (Exception) { }
-         if (!situationShots) return;
          try {
             if (actor != null && actor.Exists()) {
                killDist = actor.Position.DistanceTo(victim.Position);
@@ -1342,8 +1387,9 @@ namespace KillCam {
          try {
             GTA.Native.Function.Call("SET_TIMECYCLE_MODIFIER", name);
             effectOn = true;
-         } catch (Exception) {
+         } catch (Exception ex) {
             effectOn = false;
+            LogError(ex);
          }
          Debug("effect " + name);
       }
@@ -1352,7 +1398,7 @@ namespace KillCam {
 
       private void StopEffect() {
          if (!effectOn) return;
-         try { GTA.Native.Function.Call("CLEAR_TIMECYCLE_MODIFIER"); } catch (Exception) { }
+         try { GTA.Native.Function.Call("CLEAR_TIMECYCLE_MODIFIER"); } catch (Exception ex) { LogError(ex); }
          effectOn = false;
       }
 
@@ -1397,6 +1443,13 @@ namespace KillCam {
          }
          if (ejectMode) next = RandomEjectShot(shot);
          if (bustedMode) next = RandomBustedShot(first ? Shot.OrbitVictim : shot, isFinal);
+         if (manualMode == 6) {
+            next = (Shot)Enum.GetValues(typeof(Shot)).GetValue(selectedShotIndex);
+            holdFinal = false;
+         } else if (!ShotAllowed(next)) {
+            next = FindAllowedShot(next);
+            pendingVictimQuarter = deathMode && isFinal && Array.IndexOf(quarterShots, next) >= 0;
+         }
 
          // each shot gets its own length: fast moves are short, slow moves are long
          activeShotMs = baseShotMs;
@@ -1404,7 +1457,7 @@ namespace KillCam {
             activeShotMs = Math.Max(300, prerollMs);
          } else if (opener) {
             activeShotMs = Math.Max(300, openerMs);
-         } else if (perShotLengths && !bustedMode && !(actorInCar && camCount > 0)) {
+         } else if (perShotLengths && !bustedMode && manualMode != 6 && !(actorInCar && camCount > 0)) {
             activeShotMs = Math.Max(300, (int)(baseShotMs * ShotLengthFactor(next)));
          }
          if (becameFinal && countMode) activeDurationMs = elapsed + activeShotMs;
@@ -1418,6 +1471,8 @@ namespace KillCam {
 
          shot = next;
          victimQuarter = pendingVictimQuarter;
+         safeFraming = false;
+         obstructCount = 0;
          shotStartTick = Environment.TickCount;
          cutIndex++;
          // the game can drop the modifier on its own, so it is re-applied on every cut
@@ -1464,6 +1519,51 @@ namespace KillCam {
 
       private bool IsDisabled(Shot sh) {
          return disabledShots.Count > 0 && disabledShots.Contains(sh);
+      }
+
+      private bool NeedsVehicle(Shot sh) {
+         return sh == Shot.CarSide || sh == Shot.CarLowFront || sh == Shot.CarQuarter || sh == Shot.CarRearQuarter;
+      }
+
+      private bool NeedsOtherPed(Shot sh) {
+         return sh == Shot.TwoShot || sh == Shot.OverShoulder || sh == Shot.BulletFollow ||
+            sh == Shot.WhipPan || sh == Shot.ReverseOver || sh == Shot.GroupWide ||
+            sh == Shot.MeleeBehind || sh == Shot.MeleeTwoShot;
+      }
+
+      private bool ShotAllowed(Shot sh) {
+         if (IsDisabled(sh) || (noActor && NeedsOtherPed(sh))) return false;
+         if (noActor && IsActorShotType(sh) && !(deathMode && Array.IndexOf(quarterShots, sh) >= 0)) return false;
+         if (NeedsVehicle(sh) && !actorInCar) return false;
+         if (sh == Shot.GroupWide && bystanders.Count == 0) return false;
+         if (interior && (sh == Shot.HighCrane || sh == Shot.TopDown || sh == Shot.Telephoto ||
+             sh == Shot.Flyby || sh == Shot.ActorCrane || sh == Shot.ActorLongQuarter ||
+             sh == Shot.GroupWide || sh == Shot.ZoomPull)) return false;
+         if (actorInCar && vehKind == 0 && IsActorShotType(sh) && !NeedsVehicle(sh) &&
+             sh != Shot.ActorWide && sh != Shot.ActorOrbit && sh != Shot.ActorCrane) return false;
+         if (ejectMode && sh != Shot.DollyIn && sh != Shot.PullBack && sh != Shot.SideTrack &&
+             sh != Shot.Telephoto && sh != Shot.ZoomPull) return false;
+         return true;
+      }
+
+      private Shot FindAllowedShot(Shot desired) {
+         Array values = Enum.GetValues(typeof(Shot));
+         int start = rng.Next(values.Length);
+         if (deathMode && finalShotChosen) {
+            for (int i = 0; i < quarterShots.Length; i++) {
+               Shot candidate = quarterShots[(start + i) % quarterShots.Length];
+               if (ShotAllowed(candidate)) return candidate;
+            }
+         }
+         for (int pass = 0; pass < 2; pass++) {
+            for (int i = 0; i < values.Length; i++) {
+               Shot candidate = (Shot)values.GetValue((start + i) % values.Length);
+               if (deathMode && finalShotChosen && IsActorShotType(candidate)) continue;
+               if (ShotAllowed(candidate) && (pass != 0 || IsActorShotType(candidate) == IsActorShotType(desired)))
+                  return candidate;
+            }
+         }
+         throw new InvalidOperationException("No camera shots are available for this situation; check DisabledShots.");
       }
 
       // how long a shot runs compared with the normal shot length
@@ -2078,6 +2178,19 @@ namespace KillCam {
             pos = new Vector3(pos.X, pos.Y, pos.Z + 2.6f);
             target = new Vector3(target.X, target.Y, target.Z - 0.5f);
          }
+         if (safeFraming) {
+            if (now0 - safeFrameTick >= 250) {
+               if (!FindSafePosition(target, out safePosition)) {
+                  Debug("safe camera framing unavailable; stopping");
+                  StopCamera();
+                  return;
+               }
+               safeFrameTick = now0;
+            }
+            pos = safePosition;
+            cam.Roll = 0.0f;
+            cam.FOV = 50.0f;
+         }
          // every shot on the player gets the soft face light (not on the killer/officer in death or busted cams)
          if (faceLight && IsActorShot() && !deathMode) {
             Vector3 lh = ActorHead();
@@ -2092,16 +2205,26 @@ namespace KillCam {
             faceLightObj.Enabled = false;
          }
          // if the camera ended up inside geometry, cut to another shot instead of sitting in it
-         if (!interior && now0 - obstructTick >= 250) {
+         if (now0 - obstructTick >= 250) {
             obstructTick = now0;
             Vector3 mid = new Vector3((pos.X + target.X) * 0.5f, (pos.Y + target.Y) * 0.5f, (pos.Z + target.Z) * 0.5f);
-            if (IsBlocked(pos, target.Z - 1.0f) || IsBlocked(mid, target.Z - 1.0f)) obstructCount++;
+            if (pos.DistanceTo(target) < 0.8f || IsBlocked(pos, target.Z - 1.0f) || IsBlocked(mid, target.Z - 1.0f)) obstructCount++;
             else obstructCount = 0;
-            if (obstructCount >= 2 && now0 - shotStartTick > 700) {
+            if (obstructCount >= 2) {
                obstructCount = 0;
-               Debug("camera obstructed, changing shot");
-               ChooseShot(false);
-               return;
+               Vector3 safe;
+               if (!FindSafePosition(target, out safe)) {
+                  Debug("camera framing unavailable; stopping");
+                  StopCamera();
+                  return;
+               }
+               Debug("camera too close or obstructed; using wide framing");
+               safeFraming = true;
+               safePosition = safe;
+               safeFrameTick = now0;
+               pos = safe;
+               cam.Roll = 0.0f;
+               cam.FOV = 50.0f;
             }
          }
          cam.Position = pos;
@@ -2110,6 +2233,25 @@ namespace KillCam {
 
       private int obstructTick = 0;
       private int obstructCount = 0;
+      private bool safeFraming = false;
+      private int safeFrameTick = 0;
+      private Vector3 safePosition;
+
+      private bool FindSafePosition(Vector3 target, out Vector3 safe) {
+         float radius = interior ? Math.Max(1.5f, 3.0f * interiorScale) : 4.0f;
+         for (int i = 0; i < 8; i++) {
+            float direction = angle + i * (float)Math.PI / 4.0f;
+            Vector3 candidate = Offset(target, direction, radius, interior ? 0.5f : 1.0f);
+            Vector3 mid = new Vector3((candidate.X + target.X) * 0.5f,
+               (candidate.Y + target.Y) * 0.5f, (candidate.Z + target.Z) * 0.5f);
+            if (!IsBlocked(candidate, target.Z - 1.0f) && !IsBlocked(mid, target.Z - 1.0f)) {
+               safe = candidate;
+               return true;
+            }
+         }
+         safe = target;
+         return false;
+      }
 
       private void UpdateCamera() {
          int now = Environment.TickCount;
@@ -2130,8 +2272,13 @@ namespace KillCam {
             StopCamera();
             return;
          }
-         if (!deathMode && GameBusy()) {
+         if (Game.Paused || (!deathMode && GameBusy())) {
             Debug("stopped: game busy");
+            StopCamera();
+            return;
+         }
+         if (!deathMode && !ejectMode && manualMode == 0 && now - startTick > 500 && !Player.CanControlCharacter) {
+            Debug("stopped: player control unavailable");
             StopCamera();
             return;
          }
@@ -2197,14 +2344,14 @@ namespace KillCam {
 
       // hands the view back to the normal gameplay camera, whatever state the script camera is in
       private void ReleaseView() {
-         try { GTA.Native.Function.Call("ACTIVATE_SCRIPTED_CAMS", 0, 0); } catch (Exception) { }
+         try { GTA.Native.Function.Call("ACTIVATE_SCRIPTED_CAMS", 0, 0); } catch (Exception ex) { LogError(ex); }
       }
 
       private void StopCamera() {
          // the camera goes first so a failure further down can never leave the view stuck
          if (cam != null) {
-            try { cam.Deactivate(); } catch (Exception) { }
-            try { cam.Delete(); } catch (Exception) { }
+            try { cam.Deactivate(); } catch (Exception ex) { LogError(ex); }
+            try { cam.Delete(); } catch (Exception ex) { LogError(ex); }
             cam = null;
          }
          ReleaseView();
@@ -2212,17 +2359,19 @@ namespace KillCam {
          releaseChecks = 2;
          releaseTick = Environment.TickCount;
          if (faceLightObj != null) {
-            try { faceLightObj.Enabled = false; } catch (Exception) { }
+            try { faceLightObj.Enabled = false; } catch (Exception ex) { LogError(ex); }
          }
          if (timeScaleSet) {
-            Game.TimeScale = 1.0f;
+            try { Game.TimeScale = 1.0f; } catch (Exception ex) { LogError(ex); }
             timeScaleSet = false;
          }
          StopEffect();
          if (madeInvincible) {
             madeInvincible = false;
-            Ped player = Player.Character;
-            if (player != null && player.Exists()) player.Invincible = false;
+            try {
+               if (invinciblePed != null && invinciblePed.Exists()) invinciblePed.Invincible = false;
+            } catch (Exception ex) { LogError(ex); }
+            invinciblePed = null;
          }
          if (state == CamState.Playing) {
             lastEndTick = Environment.TickCount;
@@ -2236,6 +2385,8 @@ namespace KillCam {
          bustedMode = false;
          ejectMode = false;
          manualMode = 0;
+         pendingManual = 0;
+         safeFraming = false;
          state = CamState.Idle;
          this.Interval = 100;
       }
