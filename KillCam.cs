@@ -128,6 +128,11 @@ namespace KillCam {
       private List<int> recentKills = new List<int>();
       private List<Shot> disabledShots = new List<Shot>();
       private int camCount = 0;
+      private int curRampMs = 0;
+      private int killsThisScan = 0;
+      private int lastPlayerKillTick = -100000;
+      private int prevPlayerKillTick = -100000;
+      private bool multiKill = false;
       private float dayLightScale = 0.6f;
       private bool isNight = false;
       private float lastSetScale = -1.0f;
@@ -632,6 +637,7 @@ namespace KillCam {
          if (ejectCam) CheckEject(player);
 
          Ped killed = null;
+         killsThisScan = 0;
          int now = Environment.TickCount;
          for (int i = tracked.Count - 1; i >= 0; i--) {
             TrackedPed t = tracked[i];
@@ -645,7 +651,12 @@ namespace KillCam {
                // a big final drop (or a recent big hit) is a kill; slow bleeding is not
                bool direct = (t.Health >= hitDropThreshold) || (now - t.LastHitTick <= killWindowMs);
                Debug("ped died, by player: " + byPlayer.ToString() + ", direct: " + direct.ToString());
-               if (byPlayer && direct && killed == null) killed = p;
+               if (byPlayer && direct) {
+                  killsThisScan++;
+                  prevPlayerKillTick = lastPlayerKillTick;
+                  lastPlayerKillTick = now;
+                  if (killed == null) killed = p;
+               }
             } else if (p.Position.DistanceTo(player.Position) > scanRadius * 1.5f) {
                tracked.RemoveAt(i);
             } else {
@@ -656,6 +667,7 @@ namespace KillCam {
          }
 
          if (killed != null) {
+            multiKill = killsThisScan >= 2 || lastPlayerKillTick - prevPlayerKillTick < 2500;
             TryStartCamera(player, killed);
          }
 
@@ -890,14 +902,18 @@ namespace KillCam {
             if (slow < 0.02f) slow = 0.02f;
             if (!ejectMode) {
                // a kill cam is one to three shots; from a car it is one or two, and shorter
-               camCount = actorInCar ? 1 + rng.Next(2) : 1 + rng.Next(3);
-               if (actorInCar) baseShotMs = (int)(baseShotMs * 0.75f);
+               camCount = actorInCar ? 1 : 1 + rng.Next(3);
+               if (actorInCar) {
+                  // a car cam is a single quick shot to keep the driving tense; running down several peds holds a little longer
+                  baseShotMs = multiKill ? 1800 : 1000;
+               }
                // generous estimate; the real end is set when the last shot is chosen
-               activeDurationMs = (int)(camCount * baseShotMs * 1.4f) + finalHoldMs;
+               activeDurationMs = (int)(camCount * baseShotMs * 1.4f) + (actorInCar ? 0 : finalHoldMs);
                Debug("cameras " + camCount.ToString());
             }
             Debug("tier " + tier.ToString());
          }
+         curRampMs = Math.Min(rampMs, activeDurationMs / 3);
          if (busted) baseShotMs = Math.Max(shotLengthMs, deathHoldMs / bustedCuts);
          activeShotMs = baseShotMs;
          return slow;
@@ -926,15 +942,15 @@ namespace KillCam {
       // Time scale over the cam's real-time clock. Last-enemy kills ease in from near-normal speed;
       // every kill cam eases back out over the final SlowRampMs.
       private void ApplyTimeScale(int now) {
-         if (rampMs > 0) {
+         if (curRampMs > 0) {
             float elapsed = now - startTick;
-            if (rampIn && elapsed < rampMs) {
-               float tin = elapsed / (float)rampMs;
+            if (rampIn && elapsed < curRampMs) {
+               float tin = elapsed / (float)curRampMs;
                float e = tin * tin * (3.0f - 2.0f * tin);
                SetScale(rampFrom + (baseScale - rampFrom) * e);
                return;
             }
-            float tout = 1.0f - (activeDurationMs - elapsed) / (float)rampMs;
+            float tout = 1.0f - (activeDurationMs - elapsed) / (float)curRampMs;
             if (rampOutOn && tout > 0.0f) {
                if (tout > 1.0f) tout = 1.0f;
                float e2 = tout * tout * (3.0f - 2.0f * tout);
@@ -1153,7 +1169,7 @@ namespace KillCam {
          }
          if (becameFinal) {
             finalShotChosen = true;
-            holdFinal = !deathMode && !bustedMode && finalHoldMs > 0;
+            holdFinal = !deathMode && !bustedMode && !actorInCar && finalHoldMs > 0;
          }
          if (ejectMode) next = RandomEjectShot(shot);
          if (bustedMode) next = RandomBustedShot(first ? Shot.OrbitVictim : shot, isFinal);
@@ -1162,7 +1178,7 @@ namespace KillCam {
          activeShotMs = baseShotMs;
          if (opener) {
             activeShotMs = Math.Max(300, openerMs);
-         } else if (perShotLengths && !bustedMode) {
+         } else if (perShotLengths && !bustedMode && !(actorInCar && camCount > 0)) {
             activeShotMs = Math.Max(300, (int)(baseShotMs * ShotLengthFactor(next)));
          }
          if (becameFinal && countMode) activeDurationMs = elapsed + activeShotMs;
@@ -1276,7 +1292,7 @@ namespace KillCam {
 
       // eject cam: steady, non-orbiting shots only
       private Shot RandomEjectShot(Shot previous) {
-         Shot[] options = new Shot[] { Shot.LowFront, Shot.DollyIn, Shot.PullBack, Shot.SideTrack, Shot.Telephoto, Shot.ZoomPull, Shot.LowRise };
+         Shot[] options = new Shot[] { Shot.DollyIn, Shot.PullBack, Shot.SideTrack, Shot.Telephoto, Shot.ZoomPull };
          Shot pick = options[rng.Next(options.Length)];
          for (int tries = 0; tries < 8; tries++) {
             pick = options[rng.Next(options.Length)];
@@ -1772,6 +1788,11 @@ namespace KillCam {
                pos = ClearPosition(lastVictimPos, angle, orbitRadius, orbitHeight + 0.6f);
                target = victimHead;
                break;
+         }
+         // the eject cam sits higher and looks slightly down at the player
+         if (ejectMode) {
+            pos = new Vector3(pos.X, pos.Y, pos.Z + 2.6f);
+            target = new Vector3(target.X, target.Y, target.Z - 0.5f);
          }
          // every shot on the player gets the soft face light (not on the killer/officer in death or busted cams)
          if (faceLight && IsActorShot() && !deathMode) {

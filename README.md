@@ -68,3 +68,4 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 - **Vehicle kills** also use `CarQuarter` and `CarRearQuarter`.
 - **Ejection:** `EjectCam=true` plays a short cam (max 5 s, game speed at least 0.15) when the player is thrown out of a vehicle moving faster than `EjectMinSpeed` m/s. `EjectCamChancePercent` sets how often. It uses the normal cooldown.
 - **Camera count:** each kill cam plays one to three shots at random (one or two from a car, with shorter shots). `DurationMs` now only applies to the eject cam.
+- **Car kills** are a single shot of about 1 s (1.8 s when several peds are killed within a couple of seconds) with no end hold. The eject cam sits 2.6 m higher and looks slightly down.
