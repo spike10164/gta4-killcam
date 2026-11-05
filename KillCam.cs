@@ -131,6 +131,30 @@ namespace KillCam {
       private List<Shot> disabledShots = new List<Shot>();
       private int camCount = 0;
       private int maxCameras = 3;
+      private bool shotFatigue = true;
+      private int fatigueDepth = 8;
+      private int fatiguePenalty = 55;
+      private List<Shot> recentShotHistory = new List<Shot>();
+      private bool rhythmMode = true;
+      private int rhythmCycleMs = 300000;
+      private bool rhythmCombatBoost = true;
+      private bool fancyShotCap = true;
+      private int fancyShotMaxPerCam = 1;
+      private int fancyShotsUsed = 0;
+      private bool importancePacing = true;
+      private int importanceScore = 0;
+      private bool confidenceMode = true;
+      private int cameraConfidence = 2; // 2 = full, 1 = conservative, 0 = stable only
+      private bool microVariants = true;
+      private float variantStrength = 0.12f;
+      private bool adaptiveCooldownFloor = true;
+      private int cooldownWindowMs = 180000;
+      private int cooldownBurstCount = 4;
+      private int cooldownFloorMs = 90000;
+      private List<int> recentCamStarts = new List<int>();
+      private bool noRepeatCombos = true;
+      private int pairMemoryDepth = 10;
+      private List<string> recentPairs = new List<string>();
       private string profile = "Custom";
       private Dictionary<string, int> shotStats = new Dictionary<string, int>();
       private int camsPlayed = 0;
@@ -308,6 +332,16 @@ namespace KillCam {
             "// Chance adapts to the play: slightly higher in quiet moments and as time passes since the last cam,",
             "// lower during long firefights",
             "AdaptiveChance=true",
+            "// If many cams play in a short window, enforce this minimum cooldown to prevent fatigue",
+            "AdaptiveCooldownFloor=true",
+            "CooldownWindowMs=180000",
+            "CooldownBurstCount=4",
+            "CooldownFloorMs=90000",
+            "// Session rhythm mode rotates pacing between short, medium and cinematic every RhythmCycleMs",
+            "RhythmMode=true",
+            "RhythmCycleMs=300000",
+            "// During heavy combat, rhythm mode steps up one level",
+            "RhythmCombatBoost=true",
             "// Play a short cam when the player is thrown out of a fast-moving vehicle",
             "EjectCam=true",
             "EjectCamChancePercent=100",
@@ -342,6 +376,23 @@ namespace KillCam {
             "DurationMs=7000",
             "// Most shots a kill cam can have (1-3). Each kill cam picks 1 to this many at random",
             "MaxCameras=3",
+            "// Weighting and anti-repeat controls",
+            "ShotFatigue=true",
+            "FatigueDepth=8",
+            "FatiguePenaltyPercent=55",
+            "// Shot-reverse-shot pair memory: avoid repeating the same two-shot chain across recent cams",
+            "NoRepeatCombos=true",
+            "PairMemoryDepth=10",
+            "// Cap showy shots (whip/zoom/reverse/flyby) per cam so action stays readable",
+            "FancyShotCap=true",
+            "FancyShotMaxPerCam=1",
+            "// Spend longer cams only on high-impact kills (distance, clutch, explosive, multi-kill)",
+            "ImportancePacing=true",
+            "// If framing confidence drops, force stable shots for the rest of the cam",
+            "ConfidenceMode=true",
+            "// Small random distance/height/FOV offsets so repeated shots still feel fresh",
+            "MicroVariants=true",
+            "VariantStrength=0.12",
             "// Length of each shot in milliseconds",
             "ShotLengthMs=3500",
             "// Chance (0-100) that the last shot is on the player (face or wide shot)",
@@ -544,11 +595,29 @@ namespace KillCam {
          keyPlayShot = ParseKey(Settings.GetValueString("DebugKeyPlayShot", "General", "NumPad7"), System.Windows.Forms.Keys.NumPad7);
          profile = Settings.GetValueString("Profile", "General", "Custom").Trim();
          maxCameras = Settings.GetValueInteger("MaxCameras", "Camera", 3);
+         shotFatigue = Settings.GetValueBool("ShotFatigue", "Camera", true);
+         fatigueDepth = Settings.GetValueInteger("FatigueDepth", "Camera", 8);
+         fatiguePenalty = Settings.GetValueInteger("FatiguePenaltyPercent", "Camera", 55);
+         noRepeatCombos = Settings.GetValueBool("NoRepeatCombos", "Camera", true);
+         pairMemoryDepth = Settings.GetValueInteger("PairMemoryDepth", "Camera", 10);
+         fancyShotCap = Settings.GetValueBool("FancyShotCap", "Camera", true);
+         fancyShotMaxPerCam = Settings.GetValueInteger("FancyShotMaxPerCam", "Camera", 1);
+         importancePacing = Settings.GetValueBool("ImportancePacing", "Camera", true);
+         confidenceMode = Settings.GetValueBool("ConfidenceMode", "Camera", true);
+         microVariants = Settings.GetValueBool("MicroVariants", "Camera", true);
+         variantStrength = Settings.GetValueFloat("VariantStrength", "Camera", 0.12f);
          cinematic = Settings.GetValueBool("CinematicBias", "General", true);
          reverseShots = Settings.GetValueBool("ReverseShots", "General", true);
          prerollMs = Settings.GetValueInteger("LongRangePrerollMs", "General", 800);
          if (prerollMs < 0) prerollMs = 0;
          adaptiveChance = Settings.GetValueBool("AdaptiveChance", "General", true);
+         adaptiveCooldownFloor = Settings.GetValueBool("AdaptiveCooldownFloor", "General", true);
+         cooldownWindowMs = Settings.GetValueInteger("CooldownWindowMs", "General", 180000);
+         cooldownBurstCount = Settings.GetValueInteger("CooldownBurstCount", "General", 4);
+         cooldownFloorMs = Settings.GetValueInteger("CooldownFloorMs", "General", 90000);
+         rhythmMode = Settings.GetValueBool("RhythmMode", "General", true);
+         rhythmCycleMs = Settings.GetValueInteger("RhythmCycleMs", "General", 300000);
+         rhythmCombatBoost = Settings.GetValueBool("RhythmCombatBoost", "General", true);
          sequenceRules = Settings.GetValueBool("SequenceRules", "Camera", true);
          eyeline = Settings.GetValueBool("EyelineMatching", "Camera", true);
          perShotLengths = Settings.GetValueBool("PerShotLengths", "Camera", true);
@@ -604,6 +673,19 @@ namespace KillCam {
          }
          if (maxCameras < 1) maxCameras = 1;
          if (maxCameras > 3) maxCameras = 3;
+         if (fatigueDepth < 0) fatigueDepth = 0;
+         if (fatigueDepth > 40) fatigueDepth = 40;
+         fatiguePenalty = ClampPercent(fatiguePenalty);
+         if (pairMemoryDepth < 0) pairMemoryDepth = 0;
+         if (pairMemoryDepth > 50) pairMemoryDepth = 50;
+         if (fancyShotMaxPerCam < 0) fancyShotMaxPerCam = 0;
+         if (fancyShotMaxPerCam > 6) fancyShotMaxPerCam = 6;
+         if (variantStrength < 0.0f) variantStrength = 0.0f;
+         if (variantStrength > 0.6f) variantStrength = 0.6f;
+         if (cooldownWindowMs < 0) cooldownWindowMs = 0;
+         if (cooldownBurstCount < 1) cooldownBurstCount = 1;
+         if (cooldownFloorMs < 0) cooldownFloorMs = 0;
+         if (rhythmCycleMs < 30000) rhythmCycleMs = 30000;
          chancePercent = ClampPercent(chancePercent);
          longRangeChance = ClampPercent(longRangeChance);
          explosionChance = ClampPercent(explosionChance);
@@ -653,7 +735,7 @@ namespace KillCam {
       }
 
       // debug: plays a cam on demand. 1 = player shots only, 2 = killer vs victim shots only,
-      // 3 = death cam, 4 = busted cam, 5 = eject cam
+      // 3 = death cam, 4 = busted cam, 5 = eject cam, 6 = selected single-shot test
       private void StartManualCamera(int mode) {
          Ped player = Player.Character;
          if (player == null || !player.Exists() || player.isDead) return;
@@ -726,6 +808,24 @@ namespace KillCam {
          if (v < 0) return 0;
          if (v > 100) return 100;
          return v;
+      }
+
+      private bool IsFancyShot(Shot sh) {
+         return sh == Shot.WhipPan || sh == Shot.CrashZoom || sh == Shot.ZoomPull || sh == Shot.ReverseOver || sh == Shot.Flyby;
+      }
+
+      private bool IsStableShot(Shot sh) {
+         return sh == Shot.LowFront || sh == Shot.DollyIn || sh == Shot.PullBack || sh == Shot.ActorWide || sh == Shot.TwoShot || sh == Shot.ActorThreeQuarter;
+      }
+
+      private int CombatPressure() {
+         int pressure = 0;
+         for (int i = 0; i < tracked.Count; i++) {
+            Ped p = tracked[i].Ped;
+            if (p == null || !p.Exists() || p.isDead) continue;
+            if (p.isInCombat) pressure++;
+         }
+         return pressure;
       }
 
       private string errorText = "";
@@ -980,12 +1080,22 @@ namespace KillCam {
       }
 
       private void TryStartCamera(Ped player, Ped killed) {
-         recentKills.Add(Environment.TickCount);
+         int now = Environment.TickCount;
+         recentKills.Add(now);
+         int effectiveCooldown = cooldownMs;
+         if (adaptiveCooldownFloor && cooldownWindowMs > 0) {
+            for (int i = recentCamStarts.Count - 1; i >= 0; i--) {
+               if (now - recentCamStarts[i] > cooldownWindowMs) recentCamStarts.RemoveAt(i);
+            }
+            if (recentCamStarts.Count >= cooldownBurstCount && cooldownFloorMs > effectiveCooldown) {
+               effectiveCooldown = cooldownFloorMs;
+            }
+         }
          bool otherAlive = IsOtherEnemyAlive(player, killed);
          bool forced = alwaysLastEnemy && !otherAlive;
          // an overdue cam is guaranteed on the next kill, even if other enemies are still alive
          bool overdue = IsOverdue();
-         if (!forced && !overdue && Environment.TickCount - lastEndTick < cooldownMs) { Debug("skipped: cooldown"); return; }
+         if (!forced && !overdue && now - lastEndTick < effectiveCooldown) { Debug("skipped: cooldown"); return; }
          if (lastEnemyOnly && otherAlive && !overdue) { Debug("skipped: other enemy alive"); return; }
          lastEnemyKill = !otherAlive;
          Debug("last enemy: " + lastEnemyKill.ToString());
@@ -1116,6 +1226,7 @@ namespace KillCam {
          notArrestedSince = 0;
          state = CamState.Playing;
          this.Interval = 0;
+         if (!death && manualMode == 0) recentCamStarts.Add(now);
          Debug(death ? "started (death cam)" : "started");
       }
 
@@ -1125,6 +1236,8 @@ namespace KillCam {
          baseShotMs = shotLengthMs;
          camCount = 0;
          preroll = false;
+         fancyShotsUsed = 0;
+         cameraConfidence = 2;
          activeDurationMs = death ? (manualMode >= 3 ? Math.Min(deathHoldMs, 9000) : deathHoldMs) : (ejectMode ? Math.Min(durationMs, 5000) : durationMs);
          float slow = death ? deathTimeScale : slowScale;
          if (ejectMode && slow < 0.15f) slow = 0.15f;
@@ -1142,8 +1255,34 @@ namespace KillCam {
             if (actorInCar) slow *= 0.4f;
             if (slow < 0.02f) slow = 0.02f;
             if (!ejectMode) {
-               // a kill cam is one to three shots; from a car it is one or two, and shorter
+               // base pacing
                camCount = actorInCar ? 1 : 1 + rng.Next(maxCameras);
+               if (importancePacing) {
+                  if (importanceScore <= 1) {
+                     camCount = 1;
+                     if (baseShotMs > 1400) baseShotMs = 1400;
+                  } else if (importanceScore <= 3) {
+                     if (camCount > 2) camCount = 2;
+                     if (baseShotMs > 2200) baseShotMs = 2200;
+                  } else {
+                     if (camCount < 2) camCount = 2;
+                     if (baseShotMs < 2600) baseShotMs = 2600;
+                  }
+               }
+               if (rhythmMode && rhythmCycleMs > 0) {
+                  int phase = (Environment.TickCount / rhythmCycleMs) % 3;
+                  if (rhythmCombatBoost && CombatPressure() >= 3 && phase < 2) phase++;
+                  if (phase == 0) {
+                     camCount = 1;
+                     if (baseShotMs > 1500) baseShotMs = 1500;
+                  } else if (phase == 1) {
+                     if (camCount > 2) camCount = 2;
+                     if (baseShotMs > 2400) baseShotMs = 2400;
+                  } else {
+                     if (camCount < 2 && !actorInCar) camCount = 2;
+                     if (baseShotMs < 2400) baseShotMs = 2400;
+                  }
+               }
                // a long-range kill opens on the shooter, so it needs at least two shots
                preroll = !noActor && !actorInCar && prerollMs > 0 && killDist >= longRangeDist && manualMode == 0;
                if (preroll && camCount < 2) camCount = 2;
@@ -1212,6 +1351,7 @@ namespace KillCam {
          killDist = 0.0f;
          explosive = false;
          melee = false;
+         importanceScore = 0;
          bystanders.Clear();
          vehKind = 0;
          radiusMul = 1.0f;
@@ -1259,6 +1399,17 @@ namespace KillCam {
          if (actorInCar && vehKind == 1) radiusMul = 1.2f;
          else if (actorInCar && vehKind == 2) radiusMul = 1.8f;
          else if (actorInCar && vehKind == 3) radiusMul = 2.3f;
+         if (importancePacing) {
+            if (explosive) importanceScore += 2;
+            if (multiKill) importanceScore += 2;
+            if (killDist >= longRangeDist && longRangeDist > 0.0f) importanceScore += 1;
+            if (lastEnemyKill) importanceScore += 2;
+            try {
+               Ped player = Player.Character;
+               if (player != null && player.Exists() && player.Health <= 30) importanceScore += 1;
+            } catch (Exception) { }
+            if (actorInCar && importanceScore > 0) importanceScore--;
+         }
          Debug("situation: melee " + melee.ToString() + ", explosive " + explosive.ToString() + ", dist " + killDist.ToString("0.0") + ", actorCar " + actorInCar.ToString() + ", victimCar " + victimInCar.ToString());
       }
 
@@ -1404,6 +1555,7 @@ namespace KillCam {
 
       // picks the next shot and sets up its starting camera state
       private void ChooseShot(bool first) {
+         Shot prevShot = shot;
          Shot next = Shot.OrbitVictim;
          pendingVictimQuarter = false;
          int elapsed = Environment.TickCount - startTick;
@@ -1437,6 +1589,8 @@ namespace KillCam {
          if (preroll && countMode && cutIndex == 1) next = PickVictimShot(shot);
          if (manualMode == 1 && !IsActorShotType(next)) next = RandomActorShot(shot);
          if (manualMode == 2 && IsActorShotType(next)) next = PickVictimShot(shot);
+         if (fancyShotCap && IsFancyShot(next) && fancyShotsUsed >= fancyShotMaxPerCam && manualMode == 0) next = PickStableShot(shot);
+         if (confidenceMode && cameraConfidence == 0 && manualMode == 0) next = PickStableShot(shot);
          if (becameFinal) {
             finalShotChosen = true;
             holdFinal = !deathMode && !bustedMode && !actorInCar && finalHoldMs > 0;
@@ -1470,11 +1624,20 @@ namespace KillCam {
          }
 
          shot = next;
+         if (manualMode == 0 && cutIndex > 0) {
+            recentPairs.Add(prevShot.ToString() + ">" + next.ToString());
+            while (recentPairs.Count > pairMemoryDepth) recentPairs.RemoveAt(0);
+         }
          victimQuarter = pendingVictimQuarter;
          safeFraming = false;
          obstructCount = 0;
          shotStartTick = Environment.TickCount;
          cutIndex++;
+         if (IsFancyShot(next)) fancyShotsUsed++;
+         if (manualMode == 0) {
+            recentShotHistory.Add(next);
+            while (recentShotHistory.Count > fatigueDepth) recentShotHistory.RemoveAt(0);
+         }
          // the game can drop the modifier on its own, so it is re-applied on every cut
          if (effectOn && !first) {
             try { GTA.Native.Function.Call("SET_TIMECYCLE_MODIFIER", effectName); } catch (Exception) { }
@@ -1613,12 +1776,40 @@ namespace KillCam {
       // true when a candidate breaks the sequencing rules after the previous shot
       private bool BreaksSequence(Shot candidate, Shot previous, int attempt) {
          if (candidate == previous) return true;
+         if (fancyShotCap && IsFancyShot(candidate) && fancyShotsUsed >= fancyShotMaxPerCam) return true;
+         if (cameraConfidence == 0 && !IsStableShot(candidate)) return true;
+         if (cameraConfidence == 1 && IsFancyShot(candidate)) return true;
+         if (noRepeatCombos && attempt < 6) {
+            string pair = previous.ToString() + ">" + candidate.ToString();
+            if (recentPairs.Contains(pair)) return true;
+         }
          if (!sequenceRules) return false;
          if (ShotFamily(candidate) == ShotFamily(previous)) return true;
          // alternate wide and tight while there are tries left
          int ps = ShotSize(previous), cs = ShotSize(candidate);
          if (attempt < 5 && ps != 1 && cs == ps) return true;
          return false;
+      }
+
+      private bool FatigueReject(Shot candidate, int attempt) {
+         if (!shotFatigue || fatigueDepth <= 0 || attempt >= 7) return false;
+         int seen = 0;
+         for (int i = 0; i < recentShotHistory.Count; i++) {
+            if (recentShotHistory[i] == candidate) seen++;
+         }
+         if (seen == 0) return false;
+         int penalty = fatiguePenalty * seen;
+         if (penalty > 90) penalty = 90;
+         return rng.Next(100) < penalty;
+      }
+
+      private Shot PickStableShot(Shot previous) {
+         Shot[] stable = new Shot[] { Shot.LowFront, Shot.DollyIn, Shot.PullBack, Shot.ActorWide, Shot.TwoShot, Shot.ActorThreeQuarter };
+         for (int i = 0; i < stable.Length; i++) {
+            Shot candidate = stable[(i + rng.Next(stable.Length)) % stable.Length];
+            if (ShotAllowed(candidate) && !BreaksSequence(candidate, previous, 7)) return candidate;
+         }
+         return FindAllowedShot(previous);
       }
 
       // eject cam: steady, non-orbiting shots only
@@ -1685,7 +1876,7 @@ namespace KillCam {
          Shot pick = options[rng.Next(options.Length)];
          for (int tries = 0; tries < 8; tries++) {
             pick = options[rng.Next(options.Length)];
-            if (!IsDisabled(pick) && !BreaksSequence(pick, previous, tries)) return pick;
+            if (!IsDisabled(pick) && !BreaksSequence(pick, previous, tries) && !FatigueReject(pick, tries)) return pick;
          }
          return IsDisabled(pick) ? Shot.ActorWide : pick;
       }
@@ -1753,7 +1944,7 @@ namespace KillCam {
          Shot pick = previous;
          for (int tries = 0; tries < 8; tries++) {
             pick = pool[rng.Next(pool.Count)];
-            if (BreaksSequence(pick, previous, tries) || IsDisabled(pick)) continue;
+            if (BreaksSequence(pick, previous, tries) || IsDisabled(pick) || FatigueReject(pick, tries)) continue;
             // shots that need a second character or a vehicle fall back to solo shots
             bool needsActor = pick == Shot.TwoShot || pick == Shot.OverShoulder || pick == Shot.BulletFollow
                || pick == Shot.WhipPan || pick == Shot.CarSide || pick == Shot.CarLowFront || pick == Shot.MeleeBehind || pick == Shot.MeleeTwoShot || pick == Shot.ReverseOver || pick == Shot.GroupWide;
@@ -2220,11 +2411,22 @@ namespace KillCam {
                }
                Debug("camera too close or obstructed; using wide framing");
                safeFraming = true;
+               if (confidenceMode) cameraConfidence = 0;
                safePosition = safe;
                safeFrameTick = now0;
                pos = safe;
                cam.Roll = 0.0f;
                cam.FOV = 50.0f;
+            }
+         }
+         if (microVariants && variantStrength > 0.0f && manualMode != 6) {
+            float vt = (float)Math.Sin((now0 + shotStartTick) * 0.003f) * variantStrength;
+            Vector3 look = new Vector3(pos.X - target.X, pos.Y - target.Y, pos.Z - target.Z);
+            float len = (float)Math.Sqrt(look.X * look.X + look.Y * look.Y + look.Z * look.Z);
+            if (len > 0.001f) {
+               float s = 1.0f + vt * 0.1f;
+               pos = new Vector3(target.X + look.X * s, target.Y + look.Y * s, target.Z + look.Z * s + vt * 0.08f);
+               cam.FOV += vt * 2.2f;
             }
          }
          cam.Position = pos;

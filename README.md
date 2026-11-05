@@ -86,6 +86,16 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 - Safety: cameras stop on pause; regular kill cams also stop on fade-out or loss of player control. Death and busted cameras retain their own end conditions. Ejection cameras do not use the player-control check.
 - With `Debug=true`, `KillCam.log` gets a shot-usage summary every five cams.
 
+## Freshness and pacing controls
+- `ShotFatigue`, `FatigueDepth` and `FatiguePenaltyPercent`: recently used shots are less likely until the pool rotates.
+- `NoRepeatCombos` and `PairMemoryDepth`: avoids repeating recent two-shot chains (A→B) across cams.
+- `FancyShotCap` and `FancyShotMaxPerCam`: caps showy shots (`WhipPan`, `CrashZoom`, `ZoomPull`, `ReverseOver`, `Flyby`) per cam.
+- `ImportancePacing`: short cams for low-impact kills, longer cams only for high-impact kills (distance, explosive, clutch health, multi-kill, last enemy).
+- `RhythmMode`, `RhythmCycleMs` and `RhythmCombatBoost`: rotates short/medium/cinematic pacing by session time and steps up during heavy combat.
+- `AdaptiveCooldownFloor`, `CooldownWindowMs`, `CooldownBurstCount`, `CooldownFloorMs`: after many cams in one window, enforces a minimum cooldown.
+- `ConfidenceMode`: when framing becomes unreliable (obstructions/too-close), the rest of that cam is forced to stable shots.
+- `MicroVariants` and `VariantStrength`: tiny per-shot distance/height/FOV offsets to keep repeated shot types from feeling identical.
+
 ## Individual shot testing
 With `Debug=true`, Numpad 6 (`DebugKeyNextShot`) displays and cycles through every shot name; Numpad 7 (`DebugKeyPlayShot`) plays the selected shot. The keys can be changed in the ini. Selected tests ignore `DisabledShots` and normal context filters, but still use framing safeguards. Shots requiring another ped or a vehicle report that requirement if it is missing. Jump skips a test.
 
