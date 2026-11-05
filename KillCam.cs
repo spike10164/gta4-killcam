@@ -230,6 +230,9 @@ namespace KillCam {
             if (!File.Exists(Settings.Filename)) {
                WriteDefaultIni();
                Settings.Load();
+            } else if (MergeMissingKeys()) {
+               Settings.Load();
+               Game.Console.Print("KillCam: new settings added to KillCam.ini");
             }
             lastIniWrite = File.GetLastWriteTime(Settings.Filename);
          } catch (Exception ex) {
@@ -262,7 +265,7 @@ namespace KillCam {
          } catch (Exception) { }
       }
 
-      private void WriteDefaultIni() {
+      private string[] DefaultIniLines() {
          string[] lines = new string[] {
             "// KillCam settings. Saved changes are picked up while the game is running.",
             "// Lines starting with // are comments.",
@@ -427,7 +430,76 @@ namespace KillCam {
             "//   injured    heavy desaturation and blur, like low health",
             "Timecycles=Steel,Cinema,Eclipse"
          };
-         File.WriteAllLines(Settings.Filename, lines);
+         return lines;
+      }
+
+      private void WriteDefaultIni() {
+         File.WriteAllLines(Settings.Filename, DefaultIniLines());
+      }
+
+      private static bool IsKeyLine(string t) {
+         return t.Length > 0 && t[0] != '/' && t[0] != '\'' && t[0] != '#' && t[0] != '[' && t.IndexOf('=') > 0;
+      }
+
+      private static string SectionOf(string t) {
+         if (t.Length > 2 && t[0] == '[' && t.EndsWith("]")) return t.Substring(1, t.Length - 2).Trim().ToLower();
+         return null;
+      }
+
+      // Adds any settings that are in the defaults but missing from an existing ini, so updating the script never needs the ini deleted.
+      // New keys go right under their section header with their comments; the user's own values are never touched.
+      private bool MergeMissingKeys() {
+         string[] existing = File.ReadAllLines(Settings.Filename);
+         Dictionary<string, bool> have = new Dictionary<string, bool>();
+         List<string> sectionOrder = new List<string>();
+         string cur = "";
+         for (int i = 0; i < existing.Length; i++) {
+            string t = existing[i].Trim();
+            string sec = SectionOf(t);
+            if (sec != null) { cur = sec; if (!sectionOrder.Contains(sec)) sectionOrder.Add(sec); continue; }
+            if (IsKeyLine(t)) have[cur + "|" + t.Substring(0, t.IndexOf('=')).Trim().ToLower()] = true;
+         }
+
+         string[] defs = DefaultIniLines();
+         Dictionary<string, List<string>> missing = new Dictionary<string, List<string>>();
+         List<string> missingOrder = new List<string>();
+         List<string> comments = new List<string>();
+         cur = "";
+         for (int i = 0; i < defs.Length; i++) {
+            string t = defs[i].Trim();
+            string sec = SectionOf(t);
+            if (sec != null) { cur = sec; comments.Clear(); continue; }
+            if (t.Length == 0) { comments.Clear(); continue; }
+            if (t.StartsWith("//")) { comments.Add(defs[i]); continue; }
+            if (!IsKeyLine(t)) continue;
+            string key = cur + "|" + t.Substring(0, t.IndexOf('=')).Trim().ToLower();
+            if (!have.ContainsKey(key)) {
+               if (!missing.ContainsKey(cur)) { missing[cur] = new List<string>(); missingOrder.Add(cur); }
+               missing[cur].AddRange(comments);
+               missing[cur].Add(defs[i]);
+            }
+            comments.Clear();
+         }
+         if (missingOrder.Count == 0) return false;
+
+         List<string> output = new List<string>();
+         for (int i = 0; i < existing.Length; i++) {
+            output.Add(existing[i]);
+            string sec = SectionOf(existing[i].Trim());
+            if (sec != null && missing.ContainsKey(sec)) {
+               output.AddRange(missing[sec]);
+               missing.Remove(sec);
+            }
+         }
+         // sections that did not exist at all are added at the end
+         for (int i = 0; i < missingOrder.Count; i++) {
+            if (!missing.ContainsKey(missingOrder[i])) continue;
+            output.Add("");
+            output.Add("[" + missingOrder[i] + "]");
+            output.AddRange(missing[missingOrder[i]]);
+         }
+         File.WriteAllLines(Settings.Filename, output.ToArray());
+         return true;
       }
 
       private void ReadSettings() {

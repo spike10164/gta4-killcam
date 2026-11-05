@@ -77,3 +77,5 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 - `ReverseShots`: `OverShoulder` and the new `ReverseOver` (low behind the victim, looking back at the shooter) follow each other as a shot / reverse shot.
 - `LongRangePrerollMs`: a long-range kill opens on a tight shot of the shooter before cutting to the victim.
 - Vehicle types: bikes use closer shots, boats wider ones, helicopters the widest and highest.
+
+- When the script loads, any settings missing from an existing `KillCam.ini` are added (with their comments) under their section. Your own values are never changed, so the ini no longer needs deleting after an update. Changed defaults are only applied if you delete the ini.
