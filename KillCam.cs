@@ -132,6 +132,9 @@ namespace KillCam {
       private int pendingManual = 0;
       private System.Windows.Forms.Keys keyPlayer = System.Windows.Forms.Keys.NumPad1;
       private System.Windows.Forms.Keys keyPair = System.Windows.Forms.Keys.NumPad2;
+      private System.Windows.Forms.Keys keyDeath = System.Windows.Forms.Keys.NumPad3;
+      private System.Windows.Forms.Keys keyBusted = System.Windows.Forms.Keys.NumPad4;
+      private System.Windows.Forms.Keys keyEject = System.Windows.Forms.Keys.NumPad5;
       private int curRampMs = 0;
       private int killsThisScan = 0;
       private int lastPlayerKillTick = -100000;
@@ -291,6 +294,10 @@ namespace KillCam {
             "// on the nearest ped. Any System.Windows.Forms.Keys name, e.g. NumPad1",
             "DebugKeyPlayer=NumPad1",
             "DebugKeyPair=NumPad2",
+            "// Debug only: test the death cam (nearest ped plays the killer), the busted cam and the eject cam",
+            "DebugKeyDeath=NumPad3",
+            "DebugKeyBusted=NumPad4",
+            "DebugKeyEject=NumPad5",
             "// Prints debug lines to the console (~)",
             "Debug=false",
             "// A single health drop at least this big counts as a hit (bleeding drops 1-2 at a time)",
@@ -427,6 +434,9 @@ namespace KillCam {
          ejectMinSpeed = Settings.GetValueFloat("EjectMinSpeed", "General", 8.0f);
          keyPlayer = ParseKey(Settings.GetValueString("DebugKeyPlayer", "General", "NumPad1"), System.Windows.Forms.Keys.NumPad1);
          keyPair = ParseKey(Settings.GetValueString("DebugKeyPair", "General", "NumPad2"), System.Windows.Forms.Keys.NumPad2);
+         keyDeath = ParseKey(Settings.GetValueString("DebugKeyDeath", "General", "NumPad3"), System.Windows.Forms.Keys.NumPad3);
+         keyBusted = ParseKey(Settings.GetValueString("DebugKeyBusted", "General", "NumPad4"), System.Windows.Forms.Keys.NumPad4);
+         keyEject = ParseKey(Settings.GetValueString("DebugKeyEject", "General", "NumPad5"), System.Windows.Forms.Keys.NumPad5);
          adaptiveChance = Settings.GetValueBool("AdaptiveChance", "General", true);
          sequenceRules = Settings.GetValueBool("SequenceRules", "Camera", true);
          eyeline = Settings.GetValueBool("EyelineMatching", "Camera", true);
@@ -509,9 +519,13 @@ namespace KillCam {
          if (!debug) return;
          if (e.Key == keyPlayer) pendingManual = 1;
          else if (e.Key == keyPair) pendingManual = 2;
+         else if (e.Key == keyDeath) pendingManual = 3;
+         else if (e.Key == keyBusted) pendingManual = 4;
+         else if (e.Key == keyEject) pendingManual = 5;
       }
 
-      // debug: plays a cam on demand. 1 = player shots only, 2 = killer vs victim shots only
+      // debug: plays a cam on demand. 1 = player shots only, 2 = killer vs victim shots only,
+      // 3 = death cam, 4 = busted cam, 5 = eject cam
       private void StartManualCamera(int mode) {
          Ped player = Player.Character;
          if (player == null || !player.Exists() || player.isDead) return;
@@ -526,12 +540,23 @@ namespace KillCam {
                if (d < best) { best = d; other = p; }
             }
          }
-         if (other == null && mode == 2) { Debug("manual cam: no ped nearby for a killer vs victim shot"); return; }
+         if (other == null && (mode == 2 || mode == 4)) { Debug("manual cam: no ped nearby"); return; }
          manualMode = mode;
          lastEnemyKill = false;
          multiKill = false;
          Debug("manual cam, mode " + mode.ToString());
-         BeginCamera(other != null ? other : player, player, false, false);
+         if (mode == 3) {
+            // the player stays alive, so UpdateCamera skips the "player is no longer dead" check in manual mode
+            BeginCamera(player, other, true, false);
+         } else if (mode == 4) {
+            BeginCamera(player, other, true, true);
+         } else if (mode == 5) {
+            ejectMode = true;
+            BeginCamera(player, null, false, false);
+            if (state != CamState.Playing) ejectMode = false;
+         } else {
+            BeginCamera(other != null ? other : player, player, false, false);
+         }
          if (state != CamState.Playing) manualMode = 0;
       }
 
@@ -938,7 +963,7 @@ namespace KillCam {
          tier = 0;
          baseShotMs = shotLengthMs;
          camCount = 0;
-         activeDurationMs = death ? deathHoldMs : (ejectMode ? Math.Min(durationMs, 5000) : durationMs);
+         activeDurationMs = death ? (manualMode >= 3 ? Math.Min(deathHoldMs, 9000) : deathHoldMs) : (ejectMode ? Math.Min(durationMs, 5000) : durationMs);
          float slow = death ? deathTimeScale : slowScale;
          if (ejectMode && slow < 0.15f) slow = 0.15f;
          if (!death) {
@@ -1892,9 +1917,9 @@ namespace KillCam {
          bool over = now - startTick >= activeDurationMs;
          if (deathMode) {
             if (victim == null || !victim.Exists()) over = true;
-            else if (!bustedMode && !victim.isDead) over = true;
+            else if (!bustedMode && !victim.isDead && manualMode < 3) over = true;
             else if (bustedMode && victim.Position.DistanceTo(deathStartPos) > 25.0f) over = true;
-            else if (bustedMode && BrokeFree(now)) over = true;
+            else if (bustedMode && manualMode < 3 && BrokeFree(now)) over = true;
          } else if (player == null || !player.Exists() || player.isDead) {
             over = true;
          }
