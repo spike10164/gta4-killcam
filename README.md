@@ -4,7 +4,7 @@ ScriptHookDotNet script. When you kill a ped, time slows and the camera orbits t
 
 Install: install ScriptHookDotNet, copy `KillCam.cs` to `<GTA IV>/scripts/`. `KillCam.ini` is created on first launch.
 
-- Rare: 40% chance, 45 s cooldown, and only on the **last enemy** (`LastEnemyOnly=true`; an enemy is any nearby ped still in combat or that you hurt).
+- Rare: 40% chance, 45 s cooldown, on any kill (`LastEnemyOnly=false`; set it to true to only allow the **last enemy**; an enemy is any nearby ped still in combat or that you hurt).
 - Player is **invincible** during a kill cam (`[Player] Invincible=true`, can be turned off) and turned off afterwards (the API can't read the previous state).
 - Camera cuts every `ShotLengthMs` between random shots: orbit victim, low front, high crane, over-the-shoulder. The final shot is the player (orbit or close-up) with `EndOnPlayerPercent` chance.
 - A **timecycle** effect starts with the first camera and clears at the end of the last one (never on the death or busted cam). If the camera hits geometry it cuts to another shot. The death cam uses the normal shot set, reversed (the dead player is the subject, the killer the actor). `Timecycles` is a comma-separated list of modifier names (one picked at random); an unknown name may do nothing, so try others from the game's timecycle modifier files.

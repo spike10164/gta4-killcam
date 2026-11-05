@@ -78,7 +78,7 @@ namespace KillCam {
       private bool enabled = true;
       private int chancePercent = 40;
       private int cooldownMs = 45000;
-      private bool lastEnemyOnly = true;
+      private bool lastEnemyOnly = false;
       private bool alwaysLastEnemy = false;
       private float scanRadius = 40.0f;
       private int durationMs = 7000;
@@ -278,7 +278,7 @@ namespace KillCam {
             "// Minimum time between kill cams, in milliseconds",
             "CooldownMs=45000",
             "// true = only the last remaining enemy triggers it",
-            "LastEnemyOnly=true",
+            "LastEnemyOnly=false",
             "// true = killing the last enemy always plays a kill cam (ignores the chance roll and cooldown)",
             "AlwaysLastEnemyCam=false",
             "// Higher chance (0-100) for kills from at least LongRangeDistance metres away",
@@ -506,7 +506,7 @@ namespace KillCam {
          enabled = Settings.GetValueBool("Enabled", "General", true);
          chancePercent = Settings.GetValueInteger("ChancePercent", "General", 40);
          cooldownMs = Settings.GetValueInteger("CooldownMs", "General", 45000);
-         lastEnemyOnly = Settings.GetValueBool("LastEnemyOnly", "General", true);
+         lastEnemyOnly = Settings.GetValueBool("LastEnemyOnly", "General", false);
          alwaysLastEnemy = Settings.GetValueBool("AlwaysLastEnemyCam", "General", false);
          longRangeChance = Settings.GetValueInteger("LongRangeChancePercent", "General", 50);
          longRangeDist = Settings.GetValueFloat("LongRangeDistance", "General", 25.0f);
