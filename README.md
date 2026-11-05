@@ -71,3 +71,9 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 - **Car kills** are a single shot of about 1 s (1.8 s when several peds are killed within a couple of seconds) with no end hold. The eject cam sits 2.6 m higher and looks slightly down.
 - **Debug test keys:** with `Debug=true`, `DebugKeyPlayer` (default Numpad 1) plays a random player-only cam and `DebugKeyPair` (default Numpad 2) plays a random killer-vs-victim cam on the nearest ped. They work on foot and in a car and ignore chance and cooldown.
 - More debug keys: `DebugKeyDeath` (Numpad 3), `DebugKeyBusted` (Numpad 4) and `DebugKeyEject` (Numpad 5) play the death, busted and eject cams without the real event. The nearest ped acts as the killer or arresting officer, and the test death/busted cams last at most 9 s (Jump skips).
+
+## Cinematic style
+- `CinematicBias`: favours long lenses, slow pushes and side tracks.
+- `ReverseShots`: `OverShoulder` and the new `ReverseOver` (low behind the victim, looking back at the shooter) follow each other as a shot / reverse shot.
+- `LongRangePrerollMs`: a long-range kill opens on a tight shot of the shooter before cutting to the victim.
+- Vehicle types: bikes use closer shots, boats wider ones, helicopters the widest and highest.

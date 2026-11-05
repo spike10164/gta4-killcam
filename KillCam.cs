@@ -28,6 +28,7 @@ namespace KillCam {
          ActorSweepQuarter,
          ActorLowSide,
          ActorRiseQuarter,
+         ReverseOver,
          CarQuarter,
          CarRearQuarter,
          MeleeBehind,
@@ -128,6 +129,11 @@ namespace KillCam {
       private List<int> recentKills = new List<int>();
       private List<Shot> disabledShots = new List<Shot>();
       private int camCount = 0;
+      private bool cinematic = true;
+      private bool reverseShots = true;
+      private int prerollMs = 800;
+      private bool preroll = false;
+      private int vehKind = 0;
       private int manualMode = 0;
       private int pendingManual = 0;
       private System.Windows.Forms.Keys keyPlayer = System.Windows.Forms.Keys.NumPad1;
@@ -298,6 +304,12 @@ namespace KillCam {
             "DebugKeyDeath=NumPad3",
             "DebugKeyBusted=NumPad4",
             "DebugKeyEject=NumPad5",
+            "// Favours long lenses, slow pushes and steady framing (western / cinematic style)",
+            "CinematicBias=true",
+            "// Shot / reverse shot: over-the-shoulder cuts between shooter and victim",
+            "ReverseShots=true",
+            "// Long-range kills open on a tight shot of the shooter for this many ms before cutting to the victim. 0 = off",
+            "LongRangePrerollMs=800",
             "// Prints debug lines to the console (~)",
             "Debug=false",
             "// A single health drop at least this big counts as a hit (bleeding drops 1-2 at a time)",
@@ -335,7 +347,7 @@ namespace KillCam {
             "// Names: OrbitVictim, LowFront, HighCrane, OverShoulder, DollyIn, SideTrack, TopDown, LowRise, DutchOrbit, ZoomPull,",
             "// Telephoto, BulletFollow, PullBack, WhipPan, CrashZoom, GroundClose, HandheldClose, Flyby, TwoShot, ActorFace,",
             "// ActorWide, ActorOrbit, ActorLowAngle, ActorDolly, ActorProfile, ActorCrane, ActorThreeQuarter, ActorCloseQuarter,",
-            "// ActorHeroLow, ActorGunSide, ActorRearQuarter, ActorLongQuarter, ActorDutchQuarter, ActorSweepQuarter, ActorLowSide, ActorRiseQuarter, CarQuarter, CarRearQuarter, MeleeBehind, MeleeTwoShot, CarSide, CarLowFront",
+            "// ActorHeroLow, ActorGunSide, ActorRearQuarter, ActorLongQuarter, ActorDutchQuarter, ActorSweepQuarter, ActorLowSide, ActorRiseQuarter, ReverseOver, CarQuarter, CarRearQuarter, MeleeBehind, MeleeTwoShot, CarSide, CarLowFront",
             "DisabledShots=",
             "// Choose shots by the situation: kill distance and whether anyone is in a vehicle",
             "SituationShots=true",
@@ -437,6 +449,10 @@ namespace KillCam {
          keyDeath = ParseKey(Settings.GetValueString("DebugKeyDeath", "General", "NumPad3"), System.Windows.Forms.Keys.NumPad3);
          keyBusted = ParseKey(Settings.GetValueString("DebugKeyBusted", "General", "NumPad4"), System.Windows.Forms.Keys.NumPad4);
          keyEject = ParseKey(Settings.GetValueString("DebugKeyEject", "General", "NumPad5"), System.Windows.Forms.Keys.NumPad5);
+         cinematic = Settings.GetValueBool("CinematicBias", "General", true);
+         reverseShots = Settings.GetValueBool("ReverseShots", "General", true);
+         prerollMs = Settings.GetValueInteger("LongRangePrerollMs", "General", 800);
+         if (prerollMs < 0) prerollMs = 0;
          adaptiveChance = Settings.GetValueBool("AdaptiveChance", "General", true);
          sequenceRules = Settings.GetValueBool("SequenceRules", "Camera", true);
          eyeline = Settings.GetValueBool("EyelineMatching", "Camera", true);
@@ -963,6 +979,7 @@ namespace KillCam {
          tier = 0;
          baseShotMs = shotLengthMs;
          camCount = 0;
+         preroll = false;
          activeDurationMs = death ? (manualMode >= 3 ? Math.Min(deathHoldMs, 9000) : deathHoldMs) : (ejectMode ? Math.Min(durationMs, 5000) : durationMs);
          float slow = death ? deathTimeScale : slowScale;
          if (ejectMode && slow < 0.15f) slow = 0.15f;
@@ -982,6 +999,9 @@ namespace KillCam {
             if (!ejectMode) {
                // a kill cam is one to three shots; from a car it is one or two, and shorter
                camCount = actorInCar ? 1 : 1 + rng.Next(3);
+               // a long-range kill opens on the shooter, so it needs at least two shots
+               preroll = !noActor && !actorInCar && prerollMs > 0 && killDist >= longRangeDist && manualMode == 0;
+               if (preroll && camCount < 2) camCount = 2;
                if (actorInCar) {
                   // a car cam is a single quick shot to keep the driving tense; running down several peds holds a little longer
                   baseShotMs = multiKill ? 1800 : 1000;
@@ -1047,6 +1067,7 @@ namespace KillCam {
          killDist = 0.0f;
          explosive = false;
          melee = false;
+         vehKind = 0;
          radiusMul = 1.0f;
          behindKill = false;
          frontKnown = false;
@@ -1075,8 +1096,18 @@ namespace KillCam {
                }
             }
             victimInCar = victim.isInVehicle();
+            vehKind = 0;
+            if (actorInCar && actor.CurrentVehicle != null && actor.CurrentVehicle.Exists()) {
+               GTA.Model vm = actor.CurrentVehicle.Model;
+               if (vm.isBike) vehKind = 1;
+               else if (vm.isBoat) vehKind = 2;
+               else if (vm.isHelicopter) vehKind = 3;
+            }
          } catch (Exception) { }
          if (actorInCar || victimInCar) radiusMul = 1.5f;
+         if (actorInCar && vehKind == 1) radiusMul = 1.2f;
+         else if (actorInCar && vehKind == 2) radiusMul = 1.8f;
+         else if (actorInCar && vehKind == 3) radiusMul = 2.3f;
          Debug("situation: melee " + melee.ToString() + ", explosive " + explosive.ToString() + ", dist " + killDist.ToString("0.0") + ", actorCar " + actorInCar.ToString() + ", victimCar " + victimInCar.ToString());
       }
 
@@ -1227,9 +1258,14 @@ namespace KillCam {
          bool countMode = camCount > 0 && !deathMode && !bustedMode;
          bool isFinal = countMode ? (cutIndex >= camCount - 1) : (elapsed + baseShotMs >= activeDurationMs);
          bool becameFinal = isFinal && !finalShotChosen && (!first || countMode);
-         bool opener = first && lastEnemyKill && !deathMode && openerMs > 0 && (!countMode || camCount > 1);
+         bool prerollShot = first && preroll && countMode;
+         bool opener = first && lastEnemyKill && !deathMode && openerMs > 0 && (!countMode || camCount > 1) && !prerollShot;
          bool holdFinal = false;
-         if (opener) {
+         if (prerollShot) {
+            Shot[] pre = new Shot[] { Shot.ActorCloseQuarter, Shot.ActorThreeQuarter, Shot.ActorHeroLow };
+            next = pre[rng.Next(pre.Length)];
+            if (IsDisabled(next)) next = Shot.ActorWide;
+         } else if (opener) {
             next = RandomOpenerShot();
          } else if (first) {
             next = PickVictimShot(Shot.OrbitVictim);
@@ -1246,6 +1282,7 @@ namespace KillCam {
          } else {
             next = RandomVictimShot(shot);
          }
+         if (preroll && countMode && cutIndex == 1) next = PickVictimShot(shot);
          if (manualMode == 1 && !IsActorShotType(next)) next = RandomActorShot(shot);
          if (manualMode == 2 && IsActorShotType(next)) next = PickVictimShot(shot);
          if (becameFinal) {
@@ -1257,7 +1294,9 @@ namespace KillCam {
 
          // each shot gets its own length: fast moves are short, slow moves are long
          activeShotMs = baseShotMs;
-         if (opener) {
+         if (prerollShot) {
+            activeShotMs = Math.Max(300, prerollMs);
+         } else if (opener) {
             activeShotMs = Math.Max(300, openerMs);
          } else if (perShotLengths && !bustedMode && !(actorInCar && camCount > 0)) {
             activeShotMs = Math.Max(300, (int)(baseShotMs * ShotLengthFactor(next)));
@@ -1342,6 +1381,7 @@ namespace KillCam {
             case Shot.HandheldClose: case Shot.WhipPan: return 6;
             case Shot.TwoShot: case Shot.OverShoulder: case Shot.MeleeTwoShot: return 7;
             case Shot.MeleeBehind: return 9;
+            case Shot.ReverseOver: return 10;
             default: return 8;
          }
       }
@@ -1349,7 +1389,7 @@ namespace KillCam {
       // 0 = tight, 1 = medium, 2 = wide
       private int ShotSize(Shot sh) {
          switch (sh) {
-            case Shot.HandheldClose: case Shot.GroundClose: case Shot.CrashZoom: case Shot.DollyIn: case Shot.ActorFace:
+            case Shot.ReverseOver: case Shot.HandheldClose: case Shot.GroundClose: case Shot.CrashZoom: case Shot.DollyIn: case Shot.ActorFace:
             case Shot.ActorCloseQuarter: case Shot.ActorProfile: case Shot.OverShoulder: case Shot.LowRise: case Shot.ActorGunSide:
                return 0;
             case Shot.HighCrane: case Shot.TopDown: case Shot.Flyby: case Shot.Telephoto: case Shot.ZoomPull: case Shot.PullBack:
@@ -1400,9 +1440,22 @@ namespace KillCam {
       }
 
       // player-centric shots (only used when the actor is the player, never the killer)
+      private Shot[] Join(Shot[] a, Shot[] b) {
+         Shot[] r = new Shot[a.Length + b.Length];
+         Array.Copy(a, r, a.Length);
+         Array.Copy(b, 0, r, a.Length, b.Length);
+         return r;
+      }
+
       private Shot RandomActorShot(Shot previous) {
          Shot[] options;
-         if (actorInCar) {
+         if (actorInCar && vehKind == 1) {
+            options = new Shot[] { Shot.CarSide, Shot.CarSide, Shot.CarLowFront, Shot.CarQuarter, Shot.CarRearQuarter, Shot.ActorThreeQuarter, Shot.ActorGunSide, Shot.ActorWide };
+         } else if (actorInCar && vehKind == 2) {
+            options = new Shot[] { Shot.ActorWide, Shot.ActorWide, Shot.CarSide, Shot.CarSide, Shot.CarRearQuarter, Shot.CarQuarter, Shot.ActorCrane, Shot.ActorLongQuarter };
+         } else if (actorInCar && vehKind == 3) {
+            options = new Shot[] { Shot.ActorWide, Shot.ActorWide, Shot.ActorCrane, Shot.ActorCrane, Shot.CarSide, Shot.CarRearQuarter, Shot.ActorLongQuarter, Shot.ActorOrbit };
+         } else if (actorInCar) {
             // the windscreen and car body make face and profile shots useless
             options = new Shot[] { Shot.ActorWide, Shot.ActorWide, Shot.ActorOrbit, Shot.ActorCrane, Shot.CarSide, Shot.CarSide, Shot.CarSide, Shot.CarLowFront, Shot.CarLowFront,
                Shot.CarQuarter, Shot.CarQuarter, Shot.CarQuarter, Shot.CarRearQuarter, Shot.CarRearQuarter };
@@ -1416,6 +1469,8 @@ namespace KillCam {
                Shot.ActorGunSide, Shot.ActorRearQuarter, Shot.ActorLongQuarter, Shot.ActorLongQuarter,
                Shot.ActorDutchQuarter, Shot.ActorDutchQuarter, Shot.ActorSweepQuarter, Shot.ActorSweepQuarter, Shot.ActorLowSide, Shot.ActorLowSide,
                Shot.ActorRiseQuarter, Shot.ActorRiseQuarter };
+            if (reverseShots && !noActor) options = Join(options, new Shot[] { Shot.ReverseOver, Shot.ReverseOver, Shot.ReverseOver });
+            if (cinematic) options = Join(options, new Shot[] { Shot.ActorLongQuarter, Shot.ActorLongQuarter, Shot.ActorThreeQuarter, Shot.ActorThreeQuarter, Shot.ActorCloseQuarter, Shot.ActorHeroLow });
          }
          Shot pick = options[rng.Next(options.Length)];
          for (int tries = 0; tries < 8; tries++) {
@@ -1427,6 +1482,11 @@ namespace KillCam {
 
       private Shot RandomVictimShot(Shot previous) {
          // the second shot is usually the shooter, later cuts rarely are (not in a death cam, where the actor is the killer)
+         if (reverseShots && !deathMode && !noActor && !actorInCar) {
+            // shot / reverse shot: the two over-the-shoulder views follow each other
+            if (previous == Shot.OverShoulder && rng.Next(100) < 70 && !IsDisabled(Shot.ReverseOver)) return Shot.ReverseOver;
+            if (previous == Shot.ReverseOver && rng.Next(100) < 50 && !IsDisabled(Shot.OverShoulder)) return Shot.OverShoulder;
+         }
          if (!deathMode && !noActor && !IsActorShotType(previous)) {
             int actorChance = sequenceRules ? (cutIndex == 1 ? 75 : 20) : 35;
             if (actorInCar && actorChance < 60) actorChance = 60;
@@ -1464,6 +1524,8 @@ namespace KillCam {
          if (!interior) {
             W(Shot.HighCrane, 2); W(Shot.SideTrack, 2); W(Shot.TopDown, 1); W(Shot.ZoomPull, 1); W(Shot.Flyby, 1);
          }
+         if (cinematic && !interior) { W(Shot.Telephoto, 2); W(Shot.ZoomPull, 2); W(Shot.SideTrack, 2); W(Shot.PullBack, 2); W(Shot.DollyIn, 2); }
+         if (actorInCar && (vehKind == 2 || vehKind == 3) && !interior) { W(Shot.Flyby, 5); W(Shot.HighCrane, 5); W(Shot.SideTrack, 4); W(Shot.Telephoto, 3); }
          if (situationShots) {
             bool far = killDist > 14.0f;
             bool near = killDist > 0.0f && killDist < 4.0f;
@@ -1483,7 +1545,7 @@ namespace KillCam {
             if (BreaksSequence(pick, previous, tries) || IsDisabled(pick)) continue;
             // shots that need a second character or a vehicle fall back to solo shots
             bool needsActor = pick == Shot.TwoShot || pick == Shot.OverShoulder || pick == Shot.BulletFollow
-               || pick == Shot.WhipPan || pick == Shot.CarSide || pick == Shot.CarLowFront || pick == Shot.MeleeBehind || pick == Shot.MeleeTwoShot;
+               || pick == Shot.WhipPan || pick == Shot.CarSide || pick == Shot.CarLowFront || pick == Shot.MeleeBehind || pick == Shot.MeleeTwoShot || pick == Shot.ReverseOver;
             if (noActor && needsActor) continue;
             if (!actorInCar && (pick == Shot.CarSide || pick == Shot.CarLowFront)) continue;
             if (pick == Shot.Telephoto && interior) continue;
@@ -1505,7 +1567,7 @@ namespace KillCam {
             || s == Shot.ActorCloseQuarter || s == Shot.ActorHeroLow || s == Shot.ActorGunSide
             || s == Shot.ActorRearQuarter || s == Shot.ActorLongQuarter || s == Shot.ActorDutchQuarter
             || s == Shot.ActorSweepQuarter || s == Shot.ActorLowSide || s == Shot.ActorRiseQuarter
-            || s == Shot.CarSide || s == Shot.CarLowFront || s == Shot.CarQuarter || s == Shot.CarRearQuarter;
+            || s == Shot.ReverseOver || s == Shot.CarSide || s == Shot.CarLowFront || s == Shot.CarQuarter || s == Shot.CarRearQuarter;
       }
 
       private Vector3 Offset(Vector3 center, float ang, float radius, float height) {
@@ -1789,6 +1851,15 @@ namespace KillCam {
                float sz = (float)Math.Atan2(lastVictimPos.Y - pp.Y, lastVictimPos.X - pp.X) + (float)Math.PI / 2.0f * shotDir;
                pos = ClearPosition(mm, sz, gz * 0.7f + 3.4f - 0.6f * tz, 2.3f - 0.3f * tz);
                target = new Vector3(mm.X, mm.Y, mm.Z + 0.3f);
+               break;
+            }
+            case Shot.ReverseOver: {
+               // the reverse of OverShoulder: low behind the victim, looking back at the shooter
+               float tv = ShotT();
+               float ra = (float)Math.Atan2(lastVictimPos.Y - pp.Y, lastVictimPos.X - pp.X) + shotDir * (0.35f - 0.1f * tv);
+               pos = ClearPosition(lastVictimPos, ra, 2.3f - 0.4f * tv, 0.9f);
+               target = ActorHead();
+               cam.FOV = 34.0f;
                break;
             }
             case Shot.CarQuarter: {
