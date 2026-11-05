@@ -128,6 +128,10 @@ namespace KillCam {
       private List<int> recentKills = new List<int>();
       private List<Shot> disabledShots = new List<Shot>();
       private int camCount = 0;
+      private int manualMode = 0;
+      private int pendingManual = 0;
+      private System.Windows.Forms.Keys keyPlayer = System.Windows.Forms.Keys.NumPad1;
+      private System.Windows.Forms.Keys keyPair = System.Windows.Forms.Keys.NumPad2;
       private int curRampMs = 0;
       private int killsThisScan = 0;
       private int lastPlayerKillTick = -100000;
@@ -207,6 +211,7 @@ namespace KillCam {
          ReleaseView();
          this.Interval = 100;
          this.Tick += new EventHandler(this.KillCam_Tick);
+         this.KeyDown += new GTA.KeyEventHandler(this.KillCam_KeyDown);
          this.PerFrameDrawing += new GraphicsEventHandler(this.KillCam_Draw);
       }
 
@@ -282,6 +287,10 @@ namespace KillCam {
             "EjectCamChancePercent=100",
             "// Minimum vehicle speed (m/s) at the moment of ejection",
             "EjectMinSpeed=8",
+            "// Debug only: key that plays a random cam on the player, and key that plays a random killer-vs-victim cam",
+            "// on the nearest ped. Any System.Windows.Forms.Keys name, e.g. NumPad1",
+            "DebugKeyPlayer=NumPad1",
+            "DebugKeyPair=NumPad2",
             "// Prints debug lines to the console (~)",
             "Debug=false",
             "// A single health drop at least this big counts as a hit (bleeding drops 1-2 at a time)",
@@ -416,6 +425,8 @@ namespace KillCam {
          ejectCam = Settings.GetValueBool("EjectCam", "General", true);
          ejectChance = ClampPercent(Settings.GetValueInteger("EjectCamChancePercent", "General", 100));
          ejectMinSpeed = Settings.GetValueFloat("EjectMinSpeed", "General", 8.0f);
+         keyPlayer = ParseKey(Settings.GetValueString("DebugKeyPlayer", "General", "NumPad1"), System.Windows.Forms.Keys.NumPad1);
+         keyPair = ParseKey(Settings.GetValueString("DebugKeyPair", "General", "NumPad2"), System.Windows.Forms.Keys.NumPad2);
          adaptiveChance = Settings.GetValueBool("AdaptiveChance", "General", true);
          sequenceRules = Settings.GetValueBool("SequenceRules", "Camera", true);
          eyeline = Settings.GetValueBool("EyelineMatching", "Camera", true);
@@ -484,6 +495,44 @@ namespace KillCam {
          if (slowScale < 0.02f) slowScale = 0.02f;
          if (slowScale > 1.0f) slowScale = 1.0f;
          if (shotLengthMs < 300) shotLengthMs = 300;
+      }
+
+      private System.Windows.Forms.Keys ParseKey(string name, System.Windows.Forms.Keys fallback) {
+         try {
+            return (System.Windows.Forms.Keys)Enum.Parse(typeof(System.Windows.Forms.Keys), name.Trim(), true);
+         } catch (Exception) {
+            return fallback;
+         }
+      }
+
+      private void KillCam_KeyDown(object sender, GTA.KeyEventArgs e) {
+         if (!debug) return;
+         if (e.Key == keyPlayer) pendingManual = 1;
+         else if (e.Key == keyPair) pendingManual = 2;
+      }
+
+      // debug: plays a cam on demand. 1 = player shots only, 2 = killer vs victim shots only
+      private void StartManualCamera(int mode) {
+         Ped player = Player.Character;
+         if (player == null || !player.Exists() || player.isDead) return;
+         Ped other = NearestTracked(player, 2);
+         if (other == null) {
+            Ped[] near = World.GetPeds(player.Position, 30.0f);
+            float best = 100000.0f;
+            for (int i = 0; i < near.Length; i++) {
+               Ped p = near[i];
+               if (p == null || !p.Exists() || p.Equals(player)) continue;
+               float d = p.Position.DistanceTo(player.Position);
+               if (d < best) { best = d; other = p; }
+            }
+         }
+         if (other == null && mode == 2) { Debug("manual cam: no ped nearby for a killer vs victim shot"); return; }
+         manualMode = mode;
+         lastEnemyKill = false;
+         multiKill = false;
+         Debug("manual cam, mode " + mode.ToString());
+         BeginCamera(other != null ? other : player, player, false, false);
+         if (state != CamState.Playing) manualMode = 0;
       }
 
       private string[] ParseList(string list) {
@@ -560,6 +609,11 @@ namespace KillCam {
                   ReleaseView();
                }
                CheckIniReload();
+               if (pendingManual != 0) {
+                  int m = pendingManual;
+                  pendingManual = 0;
+                  if (debug) StartManualCamera(m);
+               }
                ScanForKills();
             }
          } catch (Exception ex) {
@@ -1167,6 +1221,8 @@ namespace KillCam {
          } else {
             next = RandomVictimShot(shot);
          }
+         if (manualMode == 1 && !IsActorShotType(next)) next = RandomActorShot(shot);
+         if (manualMode == 2 && IsActorShotType(next)) next = PickVictimShot(shot);
          if (becameFinal) {
             finalShotChosen = true;
             holdFinal = !deathMode && !bustedMode && !actorInCar && finalHoldMs > 0;
@@ -1926,6 +1982,7 @@ namespace KillCam {
          deathMode = false;
          bustedMode = false;
          ejectMode = false;
+         manualMode = 0;
          state = CamState.Idle;
          this.Interval = 100;
       }

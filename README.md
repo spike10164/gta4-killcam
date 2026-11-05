@@ -69,3 +69,4 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 - **Ejection:** `EjectCam=true` plays a short cam (max 5 s, game speed at least 0.15) when the player is thrown out of a vehicle moving faster than `EjectMinSpeed` m/s. `EjectCamChancePercent` sets how often. It uses the normal cooldown.
 - **Camera count:** each kill cam plays one to three shots at random (one or two from a car, with shorter shots). `DurationMs` now only applies to the eject cam.
 - **Car kills** are a single shot of about 1 s (1.8 s when several peds are killed within a couple of seconds) with no end hold. The eject cam sits 2.6 m higher and looks slightly down.
+- **Debug test keys:** with `Debug=true`, `DebugKeyPlayer` (default Numpad 1) plays a random player-only cam and `DebugKeyPair` (default Numpad 2) plays a random killer-vs-victim cam on the nearest ped. They work on foot and in a car and ignore chance and cooldown.
