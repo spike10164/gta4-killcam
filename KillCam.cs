@@ -29,6 +29,7 @@ namespace KillCam {
          ActorLowSide,
          ActorRiseQuarter,
          ReverseOver,
+         GroupWide,
          CarQuarter,
          CarRearQuarter,
          MeleeBehind,
@@ -129,6 +130,11 @@ namespace KillCam {
       private List<int> recentKills = new List<int>();
       private List<Shot> disabledShots = new List<Shot>();
       private int camCount = 0;
+      private int maxCameras = 3;
+      private string profile = "Custom";
+      private Dictionary<string, int> shotStats = new Dictionary<string, int>();
+      private int camsPlayed = 0;
+      private List<Ped> bystanders = new List<Ped>();
       private bool cinematic = true;
       private bool reverseShots = true;
       private int prerollMs = 800;
@@ -273,6 +279,11 @@ namespace KillCam {
             "[General]",
             "// Master switch",
             "Enabled=true",
+            "// Quick presets that override the chance, cooldown, camera count and slow-motion:",
+            "//   Custom    = use the values in this file (default)",
+            "//   Subtle    = rare, short, light slow-motion",
+            "//   Cinematic = frequent, longer, very slow",
+            "Profile=Custom",
             "// Chance (0-100) that a qualifying kill triggers the kill cam",
             "ChancePercent=40",
             "// Minimum time between kill cams, in milliseconds",
@@ -323,6 +334,8 @@ namespace KillCam {
             "[Camera]",
             "// Length of the eject cam in real milliseconds (kill cams are one to three shots of ShotLengthMs)",
             "DurationMs=7000",
+            "// Most shots a kill cam can have (1-3). Each kill cam picks 1 to this many at random",
+            "MaxCameras=3",
             "// Length of each shot in milliseconds",
             "ShotLengthMs=3500",
             "// Chance (0-100) that the last shot is on the player (face or wide shot)",
@@ -350,7 +363,7 @@ namespace KillCam {
             "// Names: OrbitVictim, LowFront, HighCrane, OverShoulder, DollyIn, SideTrack, TopDown, LowRise, DutchOrbit, ZoomPull,",
             "// Telephoto, BulletFollow, PullBack, WhipPan, CrashZoom, GroundClose, HandheldClose, Flyby, TwoShot, ActorFace,",
             "// ActorWide, ActorOrbit, ActorLowAngle, ActorDolly, ActorProfile, ActorCrane, ActorThreeQuarter, ActorCloseQuarter,",
-            "// ActorHeroLow, ActorGunSide, ActorRearQuarter, ActorLongQuarter, ActorDutchQuarter, ActorSweepQuarter, ActorLowSide, ActorRiseQuarter, ReverseOver, CarQuarter, CarRearQuarter, MeleeBehind, MeleeTwoShot, CarSide, CarLowFront",
+            "// ActorHeroLow, ActorGunSide, ActorRearQuarter, ActorLongQuarter, ActorDutchQuarter, ActorSweepQuarter, ActorLowSide, ActorRiseQuarter, ReverseOver, GroupWide, CarQuarter, CarRearQuarter, MeleeBehind, MeleeTwoShot, CarSide, CarLowFront",
             "DisabledShots=",
             "// Choose shots by the situation: kill distance and whether anyone is in a vehicle",
             "SituationShots=true",
@@ -521,6 +534,8 @@ namespace KillCam {
          keyDeath = ParseKey(Settings.GetValueString("DebugKeyDeath", "General", "NumPad3"), System.Windows.Forms.Keys.NumPad3);
          keyBusted = ParseKey(Settings.GetValueString("DebugKeyBusted", "General", "NumPad4"), System.Windows.Forms.Keys.NumPad4);
          keyEject = ParseKey(Settings.GetValueString("DebugKeyEject", "General", "NumPad5"), System.Windows.Forms.Keys.NumPad5);
+         profile = Settings.GetValueString("Profile", "General", "Custom").Trim();
+         maxCameras = Settings.GetValueInteger("MaxCameras", "Camera", 3);
          cinematic = Settings.GetValueBool("CinematicBias", "General", true);
          reverseShots = Settings.GetValueBool("ReverseShots", "General", true);
          prerollMs = Settings.GetValueInteger("LongRangePrerollMs", "General", 800);
@@ -574,6 +589,13 @@ namespace KillCam {
          rampFrom = Settings.GetValueFloat("SlowRampFrom", "Effect", 0.6f);
          if (rampFrom < 0.1f) rampFrom = 0.1f;
          if (rampFrom > 1.0f) rampFrom = 1.0f;
+         if (string.Compare(profile, "Subtle", true) == 0) {
+            chancePercent = 25; cooldownMs = 90000; maxCameras = 2; slowScale = 0.15f;
+         } else if (string.Compare(profile, "Cinematic", true) == 0) {
+            chancePercent = 70; cooldownMs = 30000; maxCameras = 3; slowScale = 0.04f;
+         }
+         if (maxCameras < 1) maxCameras = 1;
+         if (maxCameras > 3) maxCameras = 3;
          chancePercent = ClampPercent(chancePercent);
          longRangeChance = ClampPercent(longRangeChance);
          explosionChance = ClampPercent(explosionChance);
@@ -987,6 +1009,11 @@ namespace KillCam {
 
       // Sets up and starts a cam. death = the player is the subject (death or busted), busted = arrest.
       private void BeginCamera(Ped focus, Ped actingPed, bool death, bool busted) {
+         if (!death && manualMode == 0) {
+            bool noControl = false;
+            try { noControl = GameBusy() || !Player.CanControlCharacter; } catch (Exception) { }
+            if (noControl) { Debug("skipped: game busy or no player control"); return; }
+         }
          interior = false;
          try {
             interior = GTA.Native.Function.Call<bool>("IS_INTERIOR_SCENE");
@@ -1070,7 +1097,7 @@ namespace KillCam {
             if (slow < 0.02f) slow = 0.02f;
             if (!ejectMode) {
                // a kill cam is one to three shots; from a car it is one or two, and shorter
-               camCount = actorInCar ? 1 : 1 + rng.Next(3);
+               camCount = actorInCar ? 1 : 1 + rng.Next(maxCameras);
                // a long-range kill opens on the shooter, so it needs at least two shots
                preroll = !noActor && !actorInCar && prerollMs > 0 && killDist >= longRangeDist && manualMode == 0;
                if (preroll && camCount < 2) camCount = 2;
@@ -1139,6 +1166,7 @@ namespace KillCam {
          killDist = 0.0f;
          explosive = false;
          melee = false;
+         bystanders.Clear();
          vehKind = 0;
          radiusMul = 1.0f;
          behindKill = false;
@@ -1168,6 +1196,12 @@ namespace KillCam {
                }
             }
             victimInCar = victim.isInVehicle();
+            Ped[] around = World.GetPeds(victim.Position, 12.0f);
+            for (int i = 0; i < around.Length && bystanders.Count < 3; i++) {
+               Ped b = around[i];
+               if (b == null || !b.Exists() || b.isDead || b.Equals(victim) || b.Equals(actor)) continue;
+               bystanders.Add(b);
+            }
             vehKind = 0;
             if (actorInCar && actor.CurrentVehicle != null && actor.CurrentVehicle.Exists()) {
                GTA.Model vm = actor.CurrentVehicle.Model;
@@ -1414,6 +1448,9 @@ namespace KillCam {
             angle = frontAngle + (float)(rng.NextDouble() * 1.2 - 0.6);
          }
          Debug("shot " + shot.ToString());
+         int cnt;
+         shotStats.TryGetValue(shot.ToString(), out cnt);
+         shotStats[shot.ToString()] = cnt + 1;
       }
 
       private Shot RandomOpenerShot() {
@@ -1454,6 +1491,7 @@ namespace KillCam {
             case Shot.TwoShot: case Shot.OverShoulder: case Shot.MeleeTwoShot: return 7;
             case Shot.MeleeBehind: return 9;
             case Shot.ReverseOver: return 10;
+            case Shot.GroupWide: return 11;
             default: return 8;
          }
       }
@@ -1465,7 +1503,7 @@ namespace KillCam {
             case Shot.ActorCloseQuarter: case Shot.ActorProfile: case Shot.OverShoulder: case Shot.LowRise: case Shot.ActorGunSide:
                return 0;
             case Shot.HighCrane: case Shot.TopDown: case Shot.Flyby: case Shot.Telephoto: case Shot.ZoomPull: case Shot.PullBack:
-            case Shot.ActorWide: case Shot.ActorCrane: case Shot.ActorLongQuarter: case Shot.SideTrack: case Shot.CarSide:
+            case Shot.GroupWide: case Shot.ActorWide: case Shot.ActorCrane: case Shot.ActorLongQuarter: case Shot.SideTrack: case Shot.CarSide:
                return 2;
             default:
                return 1;
@@ -1598,6 +1636,7 @@ namespace KillCam {
          }
          if (cinematic && !interior) { W(Shot.Telephoto, 2); W(Shot.ZoomPull, 2); W(Shot.SideTrack, 2); W(Shot.PullBack, 2); W(Shot.DollyIn, 2); }
          if (actorInCar && (vehKind == 2 || vehKind == 3) && !interior) { W(Shot.Flyby, 5); W(Shot.HighCrane, 5); W(Shot.SideTrack, 4); W(Shot.Telephoto, 3); }
+         if (bystanders.Count >= 1 && !noActor) W(Shot.GroupWide, bystanders.Count >= 2 ? 6 : 3);
          if (situationShots) {
             bool far = killDist > 14.0f;
             bool near = killDist > 0.0f && killDist < 4.0f;
@@ -1617,7 +1656,7 @@ namespace KillCam {
             if (BreaksSequence(pick, previous, tries) || IsDisabled(pick)) continue;
             // shots that need a second character or a vehicle fall back to solo shots
             bool needsActor = pick == Shot.TwoShot || pick == Shot.OverShoulder || pick == Shot.BulletFollow
-               || pick == Shot.WhipPan || pick == Shot.CarSide || pick == Shot.CarLowFront || pick == Shot.MeleeBehind || pick == Shot.MeleeTwoShot || pick == Shot.ReverseOver;
+               || pick == Shot.WhipPan || pick == Shot.CarSide || pick == Shot.CarLowFront || pick == Shot.MeleeBehind || pick == Shot.MeleeTwoShot || pick == Shot.ReverseOver || pick == Shot.GroupWide;
             if (noActor && needsActor) continue;
             if (!actorInCar && (pick == Shot.CarSide || pick == Shot.CarLowFront)) continue;
             if (pick == Shot.Telephoto && interior) continue;
@@ -1925,6 +1964,27 @@ namespace KillCam {
                target = new Vector3(mm.X, mm.Y, mm.Z + 0.3f);
                break;
             }
+            case Shot.GroupWide: {
+               // wide shot that keeps the shooter, the victim and nearby people in frame
+               float tgw = ShotT();
+               Vector3 sum = new Vector3(pp.X + lastVictimPos.X, pp.Y + lastVictimPos.Y, pp.Z + lastVictimPos.Z);
+               int n = 2;
+               for (int i = 0; i < bystanders.Count; i++) {
+                  if (bystanders[i] == null || !bystanders[i].Exists()) continue;
+                  Vector3 bp = bystanders[i].Position;
+                  sum = new Vector3(sum.X + bp.X, sum.Y + bp.Y, sum.Z + bp.Z);
+                  n++;
+               }
+               Vector3 cen = new Vector3(sum.X / n, sum.Y / n, sum.Z / n);
+               float spread = Math.Max(pp.DistanceTo(cen), lastVictimPos.DistanceTo(cen));
+               for (int i = 0; i < bystanders.Count; i++) {
+                  if (bystanders[i] != null && bystanders[i].Exists()) spread = Math.Max(spread, bystanders[i].Position.DistanceTo(cen));
+               }
+               pos = ClearPosition(cen, angle + shotDir * 0.35f * tgw, spread * 1.3f + 5.0f - 1.0f * tgw, 2.3f);
+               target = new Vector3(cen.X, cen.Y, cen.Z + 0.7f);
+               cam.FOV = 40.0f;
+               break;
+            }
             case Shot.ReverseOver: {
                // the reverse of OverShoulder: low behind the victim, looking back at the shooter
                float tv = ShotT();
@@ -2070,6 +2130,11 @@ namespace KillCam {
             StopCamera();
             return;
          }
+         if (!deathMode && GameBusy()) {
+            Debug("stopped: game busy");
+            StopCamera();
+            return;
+         }
          bool skip = SkipPressed();
          if (!skip) skipArmed = true;
          if (skip && skipArmed) {
@@ -2109,6 +2174,24 @@ namespace KillCam {
          return now - notArrestedSince >= 400;
       }
 
+      // debug: shots played so far, most used first, so rarely or never picked shots are easy to spot
+      private void LogShotStats() {
+         List<KeyValuePair<string, int>> list = new List<KeyValuePair<string, int>>(shotStats);
+         list.Sort(delegate(KeyValuePair<string, int> a, KeyValuePair<string, int> b) { return b.Value.CompareTo(a.Value); });
+         string text = "shot stats after " + camsPlayed.ToString() + " cams:";
+         for (int i = 0; i < list.Count; i++) text += " " + list[i].Key + "=" + list[i].Value.ToString();
+         Debug(text);
+      }
+
+      // true when the game cannot show the cam properly: paused, fading, or the player has no control (cutscenes, scripted moments)
+      private bool GameBusy() {
+         try {
+            if (Game.Paused) return true;
+            if (GTA.Native.Function.Call<bool>("IS_SCREEN_FADING_OUT") || GTA.Native.Function.Call<bool>("IS_SCREEN_FADED_OUT")) return true;
+         } catch (Exception) { }
+         return false;
+      }
+
       private int releaseChecks = 0;
       private int releaseTick = 0;
 
@@ -2144,6 +2227,8 @@ namespace KillCam {
          if (state == CamState.Playing) {
             lastEndTick = Environment.TickCount;
             Debug("stopped");
+            camsPlayed++;
+            if (debug && camsPlayed % 5 == 0) LogShotStats();
          }
          victim = null;
          actor = null;

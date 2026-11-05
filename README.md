@@ -79,3 +79,9 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 - Vehicle types: bikes use closer shots, boats wider ones, helicopters the widest and highest.
 
 - When the script loads, any settings missing from an existing `KillCam.ini` are added (with their comments) under their section. Your own values are never changed, so the ini no longer needs deleting after an update. Changed defaults are only applied if you delete the ini.
+
+## More options
+- `Profile` (Custom, Subtle, Cinematic) overrides chance, cooldown, camera count and slow-motion in one go. `MaxCameras` (1-3) sets the most shots a kill cam can have.
+- `GroupWide` frames the shooter, the victim and up to three people within 12 m of the victim.
+- Safety: a kill cam never starts, and stops at once, if the game is paused or fading out, or the player cannot control the character (cutscenes, scripted moments).
+- With `Debug=true`, `KillCam.log` gets a shot-usage summary every five cams.
