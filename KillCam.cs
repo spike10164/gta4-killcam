@@ -175,6 +175,7 @@ namespace KillCam {
       private System.Windows.Forms.Keys keyPlayShot = System.Windows.Forms.Keys.NumPad7;
       private int selectedShotIndex = 0;
       private bool showShotSelection = false;
+      private int scriptedViewBlockedTick = Environment.TickCount;
       private int curRampMs = 0;
       private int killsThisScan = 0;
       private bool multiKill = false;
@@ -249,8 +250,6 @@ namespace KillCam {
 
       public KillCam() {
          LoadSettings();
-         // clears any scripted camera left behind by a previous run of this script
-         ReleaseView();
          this.Interval = 100;
          this.Tick += new EventHandler(this.KillCam_Tick);
          this.KeyDown += new GTA.KeyEventHandler(this.KillCam_KeyDown);
@@ -872,10 +871,11 @@ namespace KillCam {
             if (state == CamState.Playing) {
                UpdateCamera();
             } else {
-               if (releaseChecks > 0 && Environment.TickCount - releaseTick >= 700) {
-                  releaseChecks--;
-                  releaseTick = Environment.TickCount;
-                  ReleaseView();
+               if (GameBusy() || !Player.CanControlCharacter ||
+                   GTA.Native.Function.Call<bool>("IS_CAM_INTERPOLATING")) {
+                  scriptedViewBlockedTick = Environment.TickCount;
+                  wasInVehicle = false;
+                  ejectWatchUntil = 0;
                }
                if (pendingManual != 0) {
                   int m = pendingManual;
@@ -897,8 +897,6 @@ namespace KillCam {
                errorTextTick = Environment.TickCount;
             }
             StopCamera();
-            // hand the view back to the game even if the camera object was lost
-            try { GTA.Native.Function.Call("ACTIVATE_SCRIPTED_CAMS", 0, 0); } catch (Exception) { }
          }
       }
 
@@ -1018,6 +1016,12 @@ namespace KillCam {
       // The peak speed of the last 1.5 s is used, because a crash has already stopped the car when the player leaves it
       private void CheckEject(Ped player) {
          int now = Environment.TickCount;
+         if (now - scriptedViewBlockedTick < 2000 || GameBusy() || !Player.CanControlCharacter ||
+             GTA.Native.Function.Call<bool>("IS_CAM_INTERPOLATING")) {
+            wasInVehicle = false;
+            ejectWatchUntil = 0;
+            return;
+         }
          bool inVeh = false;
          float spd = 0.0f;
          try {
@@ -1161,7 +1165,11 @@ namespace KillCam {
       private void BeginCamera(Ped focus, Ped actingPed, bool death, bool busted) {
          if (!death && manualMode == 0) {
             bool noControl = false;
-            try { noControl = GameBusy() || !Player.CanControlCharacter; } catch (Exception) { }
+            try {
+               noControl = GameBusy() || !Player.CanControlCharacter ||
+                  GTA.Native.Function.Call<bool>("IS_CAM_INTERPOLATING") ||
+                  Environment.TickCount - scriptedViewBlockedTick < 2000;
+            } catch (Exception ex) { LogError(ex); return; }
             if (noControl) { Debug("skipped: game busy or no player control"); return; }
          }
          interior = false;
@@ -2541,25 +2549,31 @@ namespace KillCam {
          return false;
       }
 
-      private int releaseChecks = 0;
-      private int releaseTick = 0;
-
-      // hands the view back to the normal gameplay camera, whatever state the script camera is in
-      private void ReleaseView() {
-         try { GTA.Native.Function.Call("ACTIVATE_SCRIPTED_CAMS", 0, 0); } catch (Exception ex) { LogError(ex); }
-      }
-
       private void StopCamera() {
          // the camera goes first so a failure further down can never leave the view stuck
          if (cam != null) {
-            try { cam.Deactivate(); } catch (Exception ex) { LogError(ex); }
-            try { cam.Delete(); } catch (Exception ex) { LogError(ex); }
+            int handle = cam.Handle;
+            bool ownedView = false;
+            try {
+               if (cam.Exists()) {
+                  ownedView = GTA.Native.Function.Call<bool>("IS_CAM_ACTIVE", handle) &&
+                     GTA.Native.Function.Call<bool>("IS_CAM_PROPAGATING", handle);
+                  GTA.Native.Function.Call("SET_CAM_ACTIVE", handle, false);
+                  GTA.Native.Function.Call("SET_CAM_PROPAGATE", handle, false);
+               }
+            } catch (Exception ex) { LogError(ex); }
+            // Camera.Delete() invalidates its wrapper before reading isActive in this API.
+            try {
+               if (GTA.Native.Function.Call<bool>("DOES_CAM_EXIST", handle))
+                  GTA.Native.Function.Call("DESTROY_CAM", handle);
+            } catch (Exception ex) { LogError(ex); }
             cam = null;
+            try {
+               if (ownedView && (deathMode || (!GameBusy() && Player.CanControlCharacter &&
+                   !GTA.Native.Function.Call<bool>("IS_CAM_INTERPOLATING"))))
+                  GTA.Native.Function.Call("ACTIVATE_SCRIPTED_CAMS", 0, 0);
+            } catch (Exception ex) { LogError(ex); }
          }
-         ReleaseView();
-         // the release is repeated briefly after the cam ends, in case the game re-applied it
-         releaseChecks = 2;
-         releaseTick = Environment.TickCount;
          if (faceLightObj != null) {
             try { faceLightObj.Enabled = false; } catch (Exception ex) { LogError(ex); }
          }
