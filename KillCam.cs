@@ -2552,7 +2552,7 @@ namespace KillCam {
       private void StopCamera() {
          // the camera goes first so a failure further down can never leave the view stuck
          if (cam != null) {
-            int handle = cam.Handle;
+            int handle = ((GTA.base.iHandleObject)cam).Handle;
             bool ownedView = false;
             try {
                if (cam.Exists()) {
