@@ -187,6 +187,16 @@ namespace KillCam {
       private bool invincible = true;
       private bool timeScaleSet = false;
       private int lastErrorTick = -100000;
+      // fail-safe bookkeeping: the view must always come back, even when cleanup partly fails
+      private bool viewActivated = false;
+      private bool releasePending = false;
+      private int releaseRequestTick = 0;
+      private int releaseRetries = 0;
+      private int lastCamHandle = 0;
+      private int cleanupRetries = 0;
+      private int hardStopTick = 0;
+      private bool inStop = false;
+      private int lastCamSeenTick = 0;
       private int lastPedScanTick = 0;
       private bool situationShots = true;
       private float killDist = 0.0f;
@@ -871,6 +881,7 @@ namespace KillCam {
             if (state == CamState.Playing) {
                UpdateCamera();
             } else {
+               IdleWatchdog();
                if (GameBusy() || !Player.CanControlCharacter ||
                    GTA.Native.Function.Call<bool>("IS_CAM_INTERPOLATING")) {
                   scriptedViewBlockedTick = Environment.TickCount;
@@ -896,8 +907,80 @@ namespace KillCam {
                errorText = "KillCam ERROR: " + ex.Message + " " + (li >= 0 ? where.Substring(li, Math.Min(120, where.Length - li)).Replace("\r", " ").Replace("\n", " ") : "");
                errorTextTick = Environment.TickCount;
             }
-            StopCamera();
+            try { StopCamera(); } catch (Exception ex2) { LogError(ex2); ForceIdle(); }
          }
+      }
+
+      // True when our camera handle vanished or the game no longer reports it active, checked after
+      // a short grace period so a single bad query does not end the cam.
+      private bool CameraLost(int now) {
+         if (cam == null) return true;
+         try {
+            if (!GTA.Native.Function.Call<bool>("DOES_CAM_EXIST", lastCamHandle)) return true;
+            if (GTA.Native.Function.Call<bool>("IS_CAM_ACTIVE", lastCamHandle)) {
+               lastCamSeenTick = now;
+               return false;
+            }
+         } catch (Exception) { lastCamSeenTick = now; return false; }
+         return now - lastCamSeenTick > 1500;
+      }
+
+      // Runs while idle: finishes anything StopCamera could not, and retries the view release
+      // once the game is back under player control (never during a mission camera).
+      private void IdleWatchdog() {
+         int now = Environment.TickCount;
+         if (cleanupRetries > 0) {
+            cleanupRetries--;
+            try { Game.TimeScale = 1.0f; } catch (Exception) { }
+            try {
+               if (lastCamHandle != 0 && GTA.Native.Function.Call<bool>("DOES_CAM_EXIST", lastCamHandle)) {
+                  GTA.Native.Function.Call("SET_CAM_ACTIVE", lastCamHandle, false);
+                  GTA.Native.Function.Call("SET_CAM_PROPAGATE", lastCamHandle, false);
+                  GTA.Native.Function.Call("DESTROY_CAM", lastCamHandle);
+               }
+            } catch (Exception) { }
+            if (cleanupRetries == 0) lastCamHandle = 0;
+         }
+         if (!releasePending) return;
+         bool safe = false;
+         try {
+            safe = !GameBusy() && Player.CanControlCharacter && !GTA.Native.Function.Call<bool>("IS_CAM_INTERPOLATING");
+         } catch (Exception) { }
+         // after 10 s with control back, release regardless, so a bad query can never keep us waiting
+         bool overdue = now - releaseRequestTick > 10000 && Player.CanControlCharacter;
+         if (!safe && !overdue) return;
+         if (now - releaseRequestTick < releaseRetries * 700) return;
+         try { GTA.Native.Function.Call("ACTIVATE_SCRIPTED_CAMS", 0, 0); } catch (Exception ex) { LogError(ex); }
+         releaseRetries++;
+         Debug("view release " + releaseRetries);
+         if (releaseRetries >= 3) releasePending = false;
+      }
+
+      // Last resort: resets all state without touching the game, so the script can never stay in Playing.
+      private void ForceIdle() {
+         cam = null;
+         victim = null;
+         actor = null;
+         deathMode = false;
+         bustedMode = false;
+         ejectMode = false;
+         manualMode = 0;
+         pendingManual = 0;
+         safeFraming = false;
+         timeScaleSet = false;
+         try { Game.TimeScale = 1.0f; } catch (Exception) { }
+         try { if (madeInvincible && invinciblePed != null && invinciblePed.Exists()) invinciblePed.Invincible = false; } catch (Exception) { }
+         try { GTA.Native.Function.Call("CLEAR_TIMECYCLE_MODIFIER"); } catch (Exception) { }
+         madeInvincible = false;
+         invinciblePed = null;
+         effectOn = false;
+         cleanupRetries = 5;
+         releasePending = true;
+         releaseRequestTick = Environment.TickCount;
+         releaseRetries = 0;
+         inStop = false;
+         state = CamState.Idle;
+         this.Interval = 100;
       }
 
       private bool IsTracked(Ped p) {
@@ -1215,6 +1298,10 @@ namespace KillCam {
          sideSign = (rng.Next(2) == 0) ? 1.0f : -1.0f;
          ChooseShot(true);
          cam.Activate();
+         viewActivated = true;
+         lastCamSeenTick = now;
+         // absolute cap so a logic error can never keep the camera up
+         hardStopTick = now + Math.Min(activeDurationMs + 3000, death ? Math.Max(deathHoldMs, 4000) + 4000 : (ejectMode ? 8000 : 20000));
          // the screen effect starts with the first camera; it is never used on the death or busted cam
          if (!death && !ejectMode) StartEffect();
 
@@ -1319,6 +1406,7 @@ namespace KillCam {
             else try { c.Delete(); } catch (Exception) { }
          }
          if (cam == null) return false;
+         lastCamHandle = ((GTA.@base.iHandleObject)cam).Handle;
          cam.FOV = 42.0f;
          hasFixedPos = false;
          return true;
@@ -2470,6 +2558,14 @@ namespace KillCam {
          // end when time is up, when the player skips, or when the situation changes:
          // kill cam ends if the player dies; death cam ends when the dead player ped is gone (respawn)
          bool over = now - startTick >= activeDurationMs;
+         if (now - hardStopTick >= 0) {
+            Debug("stopped: hard time limit");
+            over = true;
+         }
+         if (!over && CameraLost(now)) {
+            Debug("stopped: camera lost");
+            over = true;
+         }
          if (deathMode) {
             if (victim == null || !victim.Exists()) over = true;
             else if (!bustedMode && !victim.isDead && manualMode < 3) over = true;
@@ -2550,37 +2646,69 @@ namespace KillCam {
       }
 
       private void StopCamera() {
+         if (inStop) return;
+         inStop = true;
+         try {
+            StopCameraInner();
+         } finally {
+            // state is reset even if a cleanup step throws, and the watchdog finishes the rest
+            cam = null;
+            victim = null;
+            actor = null;
+            deathMode = false;
+            bustedMode = false;
+            ejectMode = false;
+            manualMode = 0;
+            pendingManual = 0;
+            safeFraming = false;
+            timeScaleSet = false;
+            viewActivated = false;
+            cleanupRetries = 3;
+            state = CamState.Idle;
+            this.Interval = 100;
+            inStop = false;
+         }
+      }
+
+      private void StopCameraInner() {
          // the camera goes first so a failure further down can never leave the view stuck
-         if (cam != null) {
-            int handle = ((GTA.@base.iHandleObject)cam).Handle;
-            bool ownedView = false;
+         if (cam != null || viewActivated) {
+            int handle = lastCamHandle;
+            bool ownedView = viewActivated;
             try {
-               if (cam.Exists()) {
-                  ownedView = GTA.Native.Function.Call<bool>("IS_CAM_ACTIVE", handle) &&
-                     GTA.Native.Function.Call<bool>("IS_CAM_PROPAGATING", handle);
+               if (handle != 0 && GTA.Native.Function.Call<bool>("DOES_CAM_EXIST", handle)) {
+                  if (GTA.Native.Function.Call<bool>("IS_CAM_ACTIVE", handle) &&
+                      GTA.Native.Function.Call<bool>("IS_CAM_PROPAGATING", handle)) ownedView = true;
                   GTA.Native.Function.Call("SET_CAM_ACTIVE", handle, false);
                   GTA.Native.Function.Call("SET_CAM_PROPAGATE", handle, false);
                }
             } catch (Exception ex) { LogError(ex); }
             // Camera.Delete() invalidates its wrapper before reading isActive in this API.
             try {
-               if (GTA.Native.Function.Call<bool>("DOES_CAM_EXIST", handle))
+               if (handle != 0 && GTA.Native.Function.Call<bool>("DOES_CAM_EXIST", handle))
                   GTA.Native.Function.Call("DESTROY_CAM", handle);
             } catch (Exception ex) { LogError(ex); }
             cam = null;
-            try {
-               if (ownedView && (deathMode || (!GameBusy() && Player.CanControlCharacter &&
-                   !GTA.Native.Function.Call<bool>("IS_CAM_INTERPOLATING"))))
-                  GTA.Native.Function.Call("ACTIVATE_SCRIPTED_CAMS", 0, 0);
-            } catch (Exception ex) { LogError(ex); }
+            if (ownedView) {
+               bool released = false;
+               try {
+                  if (deathMode || (!GameBusy() && Player.CanControlCharacter &&
+                      !GTA.Native.Function.Call<bool>("IS_CAM_INTERPOLATING"))) {
+                     GTA.Native.Function.Call("ACTIVATE_SCRIPTED_CAMS", 0, 0);
+                     released = true;
+                  }
+               } catch (Exception ex) { LogError(ex); }
+               // the watchdog repeats the release once the game is back under player control
+               releasePending = true;
+               releaseRequestTick = Environment.TickCount;
+               releaseRetries = released ? 1 : 0;
+            }
          }
          if (faceLightObj != null) {
             try { faceLightObj.Enabled = false; } catch (Exception ex) { LogError(ex); }
          }
-         if (timeScaleSet) {
-            try { Game.TimeScale = 1.0f; } catch (Exception ex) { LogError(ex); }
-            timeScaleSet = false;
-         }
+         try { Game.TimeScale = 1.0f; } catch (Exception ex) { LogError(ex); }
+         timeScaleSet = false;
          StopEffect();
          if (madeInvincible) {
             madeInvincible = false;
@@ -2595,16 +2723,6 @@ namespace KillCam {
             camsPlayed++;
             if (debug && camsPlayed % 5 == 0) LogShotStats();
          }
-         victim = null;
-         actor = null;
-         deathMode = false;
-         bustedMode = false;
-         ejectMode = false;
-         manualMode = 0;
-         pendingManual = 0;
-         safeFraming = false;
-         state = CamState.Idle;
-         this.Interval = 100;
       }
    }
 }

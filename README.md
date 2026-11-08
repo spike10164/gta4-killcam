@@ -104,3 +104,13 @@ Normal shot selection avoids car face close-ups and large outdoor angles in tigh
 Cleanup restores the view, time scale, light, effect and the ped made invincible when a camera ends, including on errors. The ScriptHookDotNet API used here provides no script-unload event, so a forced script reload during a cam cannot be guaranteed to run cleanup. When debugging, skip the cam before reloading the script.
 
 Mission-camera compatibility: no global camera reset is performed at startup, while idle, or after a camera has already ended. Cleanup destroys only KillCam's camera handle and releases the scripted view only if that camera was active and propagating. Regular kill/eject cams are blocked during camera interpolation, loss of player control, and for two seconds afterward. These checks cannot identify every mission camera that leaves player control enabled.
+
+## Fail-safes
+
+The camera is designed to always hand control back:
+
+- **Hard time limit** on every cam (kill ≤ 20 s, eject ≤ 8 s, death/busted ≤ HoldMs + 4 s) regardless of what the shot logic does.
+- **Lost-camera detection**: if the game destroys or deactivates our camera (e.g. a mission cutscene takes over), the cam ends within 1.5 s.
+- **Guaranteed release**: the view is released whenever our camera was activated, not only when the game still reports it active. If a mission camera is running at that moment the release is retried (up to 3×, 0.7 s apart) once player control is back, and forced after 10 s.
+- **Post-stop watchdog**: for a few ticks after every stop the script re-forces normal time scale and destroys any leftover camera handle.
+- **Idempotent stop**: state is reset in a `finally` block, so a failing cleanup step can never leave the script in the Playing state; a failure inside the stop itself falls back to a no-game-call reset plus the watchdog.
