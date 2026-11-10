@@ -147,6 +147,12 @@ namespace KillCam {
       private int cameraConfidence = 2; // 2 = full, 1 = conservative, 0 = stable only
       private bool microVariants = true;
       private float variantStrength = 0.12f;
+      private float zoomSpeed = 10.0f;
+      // FOV the shot asked for (without wobble or speed limit) and the FOV actually shown
+      private float baseFov = 42.0f;
+      private float shownFov = 42.0f;
+      private int fovTick = 0;
+      private int fovShotTick = -1;
       private bool adaptiveCooldownFloor = true;
       private int cooldownWindowMs = 180000;
       private int cooldownBurstCount = 4;
@@ -402,6 +408,8 @@ namespace KillCam {
             "// Small random distance/height/FOV offsets so repeated shots still feel fresh",
             "MicroVariants=true",
             "VariantStrength=0.12",
+            "// Fastest the lens may zoom, degrees of FOV per real second (zoom shots, bullet follow...). 0 = no limit",
+            "ZoomSpeedDegPerSec=10",
             "// Length of each shot in milliseconds",
             "ShotLengthMs=3500",
             "// Chance (0-100) that the last shot is on the player (face or wide shot)",
@@ -615,6 +623,7 @@ namespace KillCam {
          confidenceMode = Settings.GetValueBool("ConfidenceMode", "Camera", true);
          microVariants = Settings.GetValueBool("MicroVariants", "Camera", true);
          variantStrength = Settings.GetValueFloat("VariantStrength", "Camera", 0.12f);
+         zoomSpeed = Settings.GetValueFloat("ZoomSpeedDegPerSec", "Camera", 10.0f);
          cinematic = Settings.GetValueBool("CinematicBias", "General", true);
          reverseShots = Settings.GetValueBool("ReverseShots", "General", true);
          prerollMs = Settings.GetValueInteger("LongRangePrerollMs", "General", 800);
@@ -691,6 +700,8 @@ namespace KillCam {
          if (fancyShotMaxPerCam > 6) fancyShotMaxPerCam = 6;
          if (variantStrength < 0.0f) variantStrength = 0.0f;
          if (variantStrength > 0.6f) variantStrength = 0.6f;
+         if (float.IsNaN(zoomSpeed) || zoomSpeed < 0.0f) zoomSpeed = 10.0f;
+         if (zoomSpeed > 200.0f) zoomSpeed = 200.0f;
          if (cooldownWindowMs < 0) cooldownWindowMs = 0;
          if (cooldownBurstCount < 1) cooldownBurstCount = 1;
          if (cooldownFloorMs < 0) cooldownFloorMs = 0;
@@ -1408,6 +1419,7 @@ namespace KillCam {
          if (cam == null) return false;
          lastCamHandle = ((GTA.@base.iHandleObject)cam).Handle;
          cam.FOV = 42.0f;
+         baseFov = 42.0f;
          hasFixedPos = false;
          return true;
       }
@@ -1742,6 +1754,7 @@ namespace KillCam {
          hasFixedPos = false;
          clearInit = false;
          cam.FOV = 42.0f;
+         baseFov = 42.0f;
          cam.Roll = 0.0f;
 
          Vector3 pp = ActorPos();
@@ -2089,6 +2102,9 @@ namespace KillCam {
          Vector3 victimHead = new Vector3(lastVictimPos.X, lastVictimPos.Y, lastVictimPos.Z + 0.4f);
          Vector3 pos;
          Vector3 target;
+         // shots that do not set a FOV keep the previous one; restore the clean value so the
+         // wobble and speed limit below never build up from frame to frame
+         cam.FOV = baseFov;
 
          switch (shot) {
             case Shot.LowFront:
@@ -2515,8 +2531,23 @@ namespace KillCam {
                cam.FOV = 50.0f;
             }
          }
+         baseFov = cam.FOV;
+         if (fovShotTick != shotStartTick) {
+            // a new shot is a cut, so its starting FOV is shown straight away
+            fovShotTick = shotStartTick;
+            shownFov = baseFov;
+         } else if (zoomSpeed > 0.0f) {
+            float step = zoomSpeed * Math.Max(0, Math.Min(250, now0 - fovTick)) / 1000.0f;
+            if (baseFov > shownFov + step) shownFov += step;
+            else if (baseFov < shownFov - step) shownFov -= step;
+            else shownFov = baseFov;
+         } else {
+            shownFov = baseFov;
+         }
+         fovTick = now0;
+         cam.FOV = shownFov;
          if (microVariants && variantStrength > 0.0f && manualMode != 6) {
-            float vt = (float)Math.Sin((now0 + shotStartTick) * 0.003f) * variantStrength;
+            float vt = (float)Math.Sin((now0 + shotStartTick) * 0.0012f) * variantStrength;
             Vector3 look = new Vector3(pos.X - target.X, pos.Y - target.Y, pos.Z - target.Z);
             float len = (float)Math.Sqrt(look.X * look.X + look.Y * look.Y + look.Z * look.Z);
             if (len > 0.001f) {

@@ -95,6 +95,7 @@ Player-centric: orbit, low angle, dolly-in, right-side profile, crane (plus face
 - `AdaptiveCooldownFloor`, `CooldownWindowMs`, `CooldownBurstCount`, `CooldownFloorMs`: after many cams in one window, enforces a minimum cooldown.
 - `ConfidenceMode`: when framing becomes unreliable (obstructions/too-close), the rest of that cam is forced to stable shots.
 - `MicroVariants` and `VariantStrength`: tiny per-shot distance/height/FOV offsets to keep repeated shot types from feeling identical.
+- `ZoomSpeedDegPerSec` (default 10, 0 = no limit): fastest the lens may zoom during a shot, in FOV degrees per real second. Cuts between shots are not slowed.
 
 ## Individual shot testing
 With `Debug=true`, Numpad 6 (`DebugKeyNextShot`) displays and cycles through every shot name; Numpad 7 (`DebugKeyPlayShot`) plays the selected shot. The keys can be changed in the ini. Selected tests ignore `DisabledShots` and normal context filters, but still use framing safeguards. Shots requiring another ped or a vehicle report that requirement if it is missing. Jump skips a test.
